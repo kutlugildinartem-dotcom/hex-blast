@@ -32,7 +32,7 @@ cp app/build/outputs/apk/release/app-release.apk "$APK"
 
 echo "==> Коммит и тег"
 git add -A
-git commit -m "Hex Blast $VERSION" -m "$NOTES"
+git commit -m "Hex Blast $VERSION" -m "$NOTES" ${COAUTHOR:+-m "$COAUTHOR"}
 git tag "v$VERSION"
 git push origin HEAD --tags
 

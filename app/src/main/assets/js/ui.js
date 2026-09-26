@@ -290,7 +290,7 @@
     const i = edCells.findIndex(([a, b]) => a === q && b === r);
     if (i >= 0) { edCells.splice(i, 1); HB.sfx.toggle(false); }
     else if (edCells.length >= MAX_CELLS) { HB.sfx.invalid(); HB.haptic('invalid'); toast(`Не больше ${MAX_CELLS} сот в одной фигуре`); return; }
-    else { edCells.push([q, r]); HB.sfx.pick(); }
+    else { edCells.push([q, r]); HB.sfx.toggle(true); }
     HB.haptic('tick');
     edDraw();
   });

@@ -36,6 +36,7 @@
     bombSource: 'combo',   // combo | charge | random
     bombPower: 1,          // 1 или 2 кольца
     undo: true,
+    hold: true,            // запасная ячейка слева от лотка
     customOn: true,
     customFreq: 'normal'   // rare | normal | often
   };

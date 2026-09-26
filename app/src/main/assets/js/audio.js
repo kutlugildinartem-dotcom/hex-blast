@@ -124,10 +124,13 @@
   const sfx = {
     unlock() { if (HB.settings.sound) { init(); if (ac && ac.state === 'suspended') ac.resume(); } },
     setVolume() { if (master) master.gain.setTargetAtTime(volume(), ac.currentTime, .05); },
-    pick() {
+    // Взятие фигуры намеренно беззвучно: «капля» раздражала, хватает вибро-щелчка.
+    pick() {},
+    stash(back) {
       if (!ready()) return; const t = now();
-      bubble(t, 440, { vol: .14 });
-      bell(mtof(96), t + .02, { vol: .035, dur: .3 });
+      const a = back ? [79, 84] : [84, 79];
+      pluck(mtof(a[0]), t, { vol: .08, dur: .22, bright: 4000 });
+      bell(mtof(a[1]), t + .07, { vol: .06, dur: .6 });
     },
     place(n = 3, x = 0) {
       if (!ready()) return; const t = now(), pan = x * .6;
@@ -180,7 +183,7 @@
     },
     refill() {
       if (!ready()) return; const t = now(.08);
-      [0, 2, 4].forEach((k, i) => bubble(t + i * .06, mtof(penta(k + 5, 67)), { vol: .07, rise: 1.5, dur: .1, pan: (i - 1) * .5 }));
+      [0, 2, 4].forEach((k, i) => bell(mtof(penta(k + 5, 72)), t + i * .06, { vol: .045, dur: .5, pan: (i - 1) * .5 }));
     },
     record() {
       if (!ready()) return; const t = now();
@@ -199,7 +202,7 @@
     },
     toggle(on) {
       if (!ready()) return; const t = now();
-      bubble(t, on ? 520 : 700, { vol: .09, rise: on ? 1.8 : .6, dur: .1 });
+      pluck(mtof(on ? 79 : 72), t, { vol: .07, dur: .16, bright: 3500, rev: .15 });
     },
     coin(i = 0) {
       if (!ready()) return; const t = now();
@@ -227,7 +230,7 @@
     },
     open() {
       if (!ready()) return; const t = now();
-      bubble(t, 360, { vol: .08, rise: 1.9, dur: .14 });
+      pluck(mtof(67), t, { vol: .05, dur: .18, bright: 2500, rev: .2 });
     }
   };
   HB.sfx = sfx;
