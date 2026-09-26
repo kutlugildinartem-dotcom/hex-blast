@@ -157,6 +157,12 @@
     charge: 'Каждые 6 сожжённых линий заряжают особую соту. Прогресс виден под рекордом.',
     random: 'Любая новая фигура может прийти с особой сотой, примерно одна из двенадцати.'
   };
+  const SPECIAL_ONE = {
+    bomb: 'Бомба: сгорает в линии и взрывает соседей.',
+    bolt: 'Молния: бьёт по всей линии, а если замкнула ряд, ещё и кольцом вокруг.',
+    fire: 'Костёр: освещает соседей, а сгорая, пускает огонь по 6–8 случайным сотам.'
+  };
+  const SPECIAL_COMBO = 'Комбо: молния раздувает костёр в огненную бурю и заряжает бомбу, огонь превращает бомбу в напалм, бомба разносит костёр огненным взрывом, костёр поджигает другой костёр.';
   const SPECIAL_DESC = {
     bomb: 'Сота с фитилём. Сгорает в линии и взрывает соседей. Каждый следующий взрыв в цепочке даёт вдвое больше очков.',
     bolt: 'Сота-молния. Как только ставишь её на поле, бьёт молния и сжигает всю линию через неё, даже неполную.',
@@ -172,8 +178,10 @@
     $$('[data-show]').forEach(el => { el.hidden = !s[el.dataset.show]; });
     $('#vol').value = Math.round(s.volume * 100);
     $('#bomb-desc').textContent = BOMB_DESC[s.bombSource];
-    $('#special-desc').textContent = SPECIAL_DESC[s.special] || SPECIAL_DESC.bomb;
-    $('#power-row').hidden = s.special === 'bolt';
+    $$('[data-multi]').forEach(seg => seg.querySelectorAll('button').forEach(b => b.classList.toggle('on', (s[seg.dataset.multi] || []).includes(b.dataset.v))));
+    const sp = s.specials || ['bomb'];
+    $('#special-desc').textContent = sp.map(k => SPECIAL_ONE[k]).join(' ') + (sp.length > 1 ? ' ' + SPECIAL_COMBO : '');
+    $('#power-row').hidden = !sp.includes('bomb');
     $('#hap-desc').textContent = HAP_DESC[s.haptics];
     const n = HB.profile.custom.length, on = HB.profile.custom.filter(c => c.on).length;
     $('#custom-summary').textContent = n ? `${n} ${U.plural(n, 'фигура', 'фигуры', 'фигур')}, в игре ${on}` : 'Нарисуй фигуру и добавь её в игру';
@@ -198,6 +206,17 @@
     HB.sfx.click();
     if (k === 'haptics') HB.haptic(v >= 3 ? 'bomb' : 'clear', 8, 1 | (2 << 8));
     else if (k === 'special' && v !== 'bomb') { HB.sfx.thunder(); HB.haptic('thunder'); }
+    else HB.haptic('tick');
+  })));
+  $$('[data-multi]').forEach(seg => seg.querySelectorAll('button').forEach(b => tap(b, () => {
+    const k = seg.dataset.multi, v = b.dataset.v, list = (HB.settings[k] || []).slice(), i = list.indexOf(v);
+    if (i >= 0) {
+      if (list.length === 1) { shakeEl(seg); HB.sfx.invalid(); toast('Хотя бы одна особая сота должна остаться'); return; }
+      list.splice(i, 1);
+    } else list.push(v);
+    HB.settings[k] = list; HB.saveSettings(); syncSettings(); HB.sfx.click();
+    if (i < 0 && v === 'bolt') { HB.sfx.thunder(); HB.haptic('thunder'); }
+    else if (i < 0 && v === 'fire') { HB.sfx.bonfire(false); HB.haptic('fire'); }
     else HB.haptic('tick');
   })));
   let volTick = 0;
@@ -328,6 +347,20 @@
       c.beginPath(); c.moveTo(cx - 50, cy + 50); c.lineTo(cx - 50, cy - 50); c.quadraticCurveTo(cx + 10, cy - 70, cx + 55, cy - 20); c.lineTo(cx - 50, cy + 50); c.stroke();
       c.strokeStyle = 'rgba(255,245,220,.85)'; c.lineWidth = 1.4;
       for (let i = 1; i <= 8; i++) { const x = cx - 50 + i * 11.5, top = cy - 50 - Math.sin(i / 9 * Math.PI) * 12 + i * 3.5; c.beginPath(); c.moveTo(x, top); c.lineTo(x, cy + 50 - i * 8.8); c.stroke(); }
+    } else if (id === 'handpan') {
+      const g2 = c.createRadialGradient(cx - 20, cy - 25, 5, cx, cy, 62); g2.addColorStop(0, '#9AA7B8'); g2.addColorStop(1, '#3A4454');
+      c.fillStyle = g2; c.beginPath(); c.ellipse(cx, cy, 62, 50, 0, 0, Math.PI * 2); c.fill();
+      c.strokeStyle = 'rgba(255,255,255,.25)'; c.lineWidth = 1.5;
+      c.beginPath(); c.ellipse(cx, cy, 16, 13, 0, 0, Math.PI * 2); c.stroke();
+      for (let i = 0; i < 7; i++) { const a = i / 7 * Math.PI * 2; c.beginPath(); c.ellipse(cx + Math.cos(a) * 38, cy + Math.sin(a) * 30, 10, 7, a, 0, Math.PI * 2); c.stroke(); }
+      c.fillStyle = 'rgba(255,255,255,.3)'; c.beginPath(); c.ellipse(cx - 25, cy - 28, 22, 6, -.4, 0, Math.PI * 2); c.fill();
+    } else if (id === 'marimba') {
+      for (let i = 0; i < 8; i++) {
+        const x = cx - 84 + i * 24, hh = 84 - i * 6;
+        const g2 = c.createLinearGradient(x, 0, x + 18, 0); g2.addColorStop(0, '#A0522D'); g2.addColorStop(.5, '#D2874D'); g2.addColorStop(1, '#8B4513');
+        c.fillStyle = g2; c.fillRect(x, cy - hh / 2, 18, hh);
+        c.fillStyle = '#5A5A6A'; c.fillRect(x + 6, cy + hh / 2, 6, 20);
+      }
     } else if (id === 'rhodes') {
       c.fillStyle = '#1B1B1B'; c.beginPath(); c.arc(cx, cy, 55, 0, Math.PI * 2); c.fill();
       c.strokeStyle = 'rgba(255,255,255,.08)'; c.lineWidth = 1; for (let r = 20; r < 54; r += 4) { c.beginPath(); c.arc(cx, cy, r, 0, Math.PI * 2); c.stroke(); }

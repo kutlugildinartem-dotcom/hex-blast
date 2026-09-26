@@ -43,6 +43,10 @@
   };
   HB.settings = Object.assign({}, SETTINGS_DEFAULT, store.get('hb.settings', {}));
   if (store.get('hb.muted', false) === true && !store.get('hb.settings', null)) HB.settings.sound = false;
+  if (!Array.isArray(HB.settings.specials)) {
+    const m = HB.settings.special;
+    HB.settings.specials = m === 'both' ? ['bomb', 'bolt'] : m === 'bolt' ? ['bolt'] : ['bomb'];
+  }
   HB.saveSettings = () => store.set('hb.settings', HB.settings);
 
   /* ---------- профиль ---------- */
@@ -94,6 +98,8 @@
     clear: [14, 16, 14, 16, 14, 16, 70], bomb: [110, 20, 40, 15, 40, 15, 40, 15, 40],
     record: [40, 55, 40, 55, 40, 55, 190], over: [130, 90, 130, 90, 280], coin: [10],
     buy: [30, 45, 30, 45, 140], streak: [40, 60, 40, 60, 110], undo: [35, 30, 35, 30, 45], combo: [28, 26, 28, 26, 28],
+    ignite: [30, 20, 60, 20, 40],
+    fire: [90, 20, 20, 40, 15, 30, 25, 50, 15, 30, 20, 60, 15],
     thunderbomb: [140, 20, 60, 25, 70, 20, 60, 30, 80, 20, 50, 40, 100, 30, 70, 60, 160],
     thunder: [45, 25, 25, 40, 60, 20, 50, 30, 70, 20, 40, 40, 90, 30, 50, 60, 120]
   };

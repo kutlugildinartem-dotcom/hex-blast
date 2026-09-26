@@ -22,6 +22,8 @@
     { id: 'harp', name: 'Арфа', price: 190, desc: 'Живые струны и глиссандо на каждую очистку' },
     { id: 'piano', name: 'Пианино', price: 180, desc: 'Мягкий рояль: аккорды на каждую очистку' },
     { id: 'rhodes', name: 'Лоу-фай Родес', price: 210, desc: 'Бархатное электропиано с тремоло и джазовыми аккордами' },
+    { id: 'handpan', name: 'Ханг', price: 200, desc: 'Глубокий металлический купол: долгие медитативные ноты' },
+    { id: 'marimba', name: 'Маримба', price: 160, desc: 'Тёплое бархатное дерево с гулким резонатором' },
     { id: 'synth', name: 'Глубокий синт', price: 240, desc: 'Плотный пад, суббас и щипки с эхом. Космическая атмосфера' }
   ];
   const TRAILS = [
@@ -36,6 +38,8 @@
     { id: 'fireflies', name: 'Светлячки', price: 140, desc: 'Тёплые огоньки разлетаются и мерцают' },
     { id: 'fire', name: 'Огонь', price: 150, desc: 'Фигура оставляет пламенный хвост' },
     { id: 'ink', name: 'Чернила', price: 160, desc: 'Цветной дым расплывается, как акварель в воде' },
+    { id: 'dandelion', name: 'Одуванчик', price: 120, desc: 'Пушистые семена улетают по ветру' },
+    { id: 'butterflies', name: 'Бабочки', price: 170, desc: 'Разноцветные бабочки порхают за фигурой' },
     { id: 'rainbow', name: 'Радуга', price: 190, desc: 'Светящаяся радужная лента' },
     { id: 'aurora', name: 'Северное сияние', price: 210, desc: 'Переливающаяся лента из зелёного, бирюзового и фиолетового' },
     { id: 'electric', name: 'Электричество', price: 220, desc: 'Живой разряд плавно извивается за фигурой' }
@@ -45,7 +49,9 @@
     { id: 'confetti', name: 'Конфетти', price: 100, desc: 'Хлопушка на каждую сгоревшую соту' },
     { id: 'pixel', name: 'Пиксели', price: 130, desc: 'Соты рассыпаются на пиксели' },
     { id: 'paint', name: 'Краска', price: 160, desc: 'Брызги краски, которые стекают по полю' },
+    { id: 'bloom', name: 'Цветение', price: 180, desc: 'Каждая сота распускается цветком и рассыпается лепестками' },
     { id: 'fireworks', name: 'Фейерверк', price: 200, desc: 'Ракеты взлетают и взрываются салютом' },
+    { id: 'supernova', name: 'Сверхновая', price: 240, desc: 'Соты вспыхивают звёздами и расходятся кольцами света' },
     { id: 'blackhole', name: 'Чёрная дыра', price: 260, desc: 'Соты затягивает в воронку' }
   ];
 
@@ -75,6 +81,8 @@
         case 'petal': p.vx = Math.sin(p.t * 3.2 + p.rot) * 38; if (p.vy > 55) p.vy = 55; break;
         case 'soap': p.vx = Math.sin(p.t * 2.4 + p.r) * 16; break;
         case 'heart': case 'note': p.vx = Math.sin(p.t * 2.6 + p.rot) * 22; break;
+        case 'butterfly': p.vx += rnd(-260, 260) * dt; p.vy += rnd(-220, 200) * dt; p.vx *= .98; p.vy *= .98; break;
+        case 'seed': p.vx = Math.sin(p.t * 1.8 + p.rot) * 26 + 12; break;
         case 'ink': p.vx *= Math.exp(-dt * 2); p.vy *= Math.exp(-dt * 2); break;
         case 'glow': p.vx *= Math.exp(-dt * 1.5); p.vy *= Math.exp(-dt * 1.5); break;
         case 'trailspark': case 'rocket': case 'zap':
@@ -189,6 +197,59 @@
           else { c.beginPath(); c.moveTo(s * .6, -s * 2.2); c.quadraticCurveTo(s * 1.4, -s * 1.7, s * 1, -s * 1.1); c.lineTo(s * .6, -s * 1.6); c.fill(); }
           if (p.rot > 3) { c.beginPath(); c.ellipse(-s * 1.1, s * .1, s * .6, s * .45, -.4, 0, TAU); c.fill(); c.fillRect(-s * .68, -s * 2.1, s * .18, s * 2.2); }
           c.restore(); break;
+        }
+        case 'butterfly': {
+          const flap = .25 + .75 * Math.abs(Math.sin(p.t * 13 + p.rot));
+          c.save(); c.translate(p.x, p.y); c.rotate(Math.atan2(p.vy, p.vx) * .25 + Math.sin(p.t * 3) * .2);
+          const r = p.r;
+          [-1, 1].forEach(s => {
+            c.save(); c.scale(s * flap, 1);
+            c.beginPath(); c.moveTo(0, 0); c.bezierCurveTo(r * .9, -r * 1.2, r * 1.5, -r * .2, r * .2, r * .1); c.fill();
+            c.globalAlpha *= .85; c.beginPath(); c.moveTo(0, 0); c.bezierCurveTo(r * .9, r * .2, r * .9, r * 1, r * .1, r * .4); c.fill(); c.globalAlpha /= .85;
+            c.fillStyle = 'rgba(255,255,255,.45)'; c.beginPath(); c.arc(r * .55, -r * .5, r * .16, 0, TAU); c.fill();
+            c.restore(); c.fillStyle = p.color;
+          });
+          c.fillStyle = '#2A1A30'; c.fillRect(-r * .06, -r * .45, r * .12, r * .9);
+          c.restore(); break;
+        }
+        case 'seed': {
+          c.save(); c.translate(p.x, p.y); c.rotate(Math.sin(p.t * 1.6 + p.rot) * .3);
+          c.strokeStyle = 'rgba(255,255,255,.85)'; c.lineWidth = .8;
+          c.beginPath(); c.moveTo(0, 0); c.lineTo(0, p.r * 1.6); c.stroke();
+          c.fillStyle = '#C9B28A'; c.beginPath(); c.ellipse(0, p.r * 1.7, p.r * .12, p.r * .28, 0, 0, TAU); c.fill();
+          c.strokeStyle = 'rgba(255,255,255,.7)'; c.lineWidth = .6; c.beginPath();
+          for (let i = 0; i < 10; i++) { const a = -Math.PI + i / 9 * Math.PI; c.moveTo(0, 0); c.lineTo(Math.cos(a) * p.r, Math.sin(a) * p.r * .8); }
+          c.stroke();
+          c.restore(); break;
+        }
+        case 'bloom': {
+          const open = eo(clamp(p.t / .35)), fade = 1 - clamp((p.t - .6) / .4);
+          c.globalAlpha = fade;
+          c.save(); c.translate(p.x, p.y); c.rotate(p.rot + open * .6);
+          for (let i = 0; i < 6; i++) {
+            const a = i * TAU / 6;
+            c.fillStyle = i % 2 ? p.color : HB.skins.mix(p.color, 'w', .35);
+            c.beginPath(); c.ellipse(Math.cos(a) * p.r * .45 * open, Math.sin(a) * p.r * .45 * open, p.r * .55 * open + .5, p.r * .28 * open + .5, a, 0, TAU); c.fill();
+          }
+          c.fillStyle = '#FFE066'; c.beginPath(); c.arc(0, 0, p.r * .22 * open + .5, 0, TAU); c.fill();
+          c.restore(); break;
+        }
+        case 'nova': {
+          c.save(); c.globalCompositeOperation = 'lighter';
+          const rr = p.r * (.3 + eo(k) * 2.4);
+          c.globalAlpha = 1 - k; c.strokeStyle = p.color; c.lineWidth = 3 * (1 - k) + .5;
+          c.beginPath(); c.arc(p.x, p.y, rr, 0, TAU); c.stroke();
+          const cg = c.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r * 1.6);
+          cg.addColorStop(0, `rgba(255,255,255,${Math.max(0, 1 - k * 2.2)})`); cg.addColorStop(1, 'rgba(255,255,255,0)');
+          c.fillStyle = cg; c.beginPath(); c.arc(p.x, p.y, p.r * 1.6, 0, TAU); c.fill();
+          c.strokeStyle = `rgba(255,255,255,${.7 * (1 - k)})`; c.lineWidth = 1.2;
+          for (let i = 0; i < 4; i++) { const a = p.rot + i * Math.PI / 2 + k; c.beginPath(); c.moveTo(p.x, p.y); c.lineTo(p.x + Math.cos(a) * rr * 1.2, p.y + Math.sin(a) * rr * 1.2); c.stroke(); }
+          c.restore(); break;
+        }
+        case 'ripple': {
+          c.strokeStyle = p.color; c.lineWidth = 2 * (1 - k) + .5;
+          c.beginPath(); c.ellipse(p.x, p.y, p.r * (.3 + k), p.r * (.22 + k * .75), 0, 0, TAU); c.stroke();
+          break;
         }
         case 'ink': {
           const r = p.r * (.35 + eo(k) * 1.4), g = c.createRadialGradient(p.x, p.y, 0, p.x, p.y, r);
@@ -394,6 +455,16 @@
         every(st, dt, 26 + spd * .06, () => emit({ k: 'ink', soft: true, x: x + rnd(-sp * .6, sp * .6), y: y + rnd(-sp * .4, sp * .4), vx: rnd(-30, 30), vy: rnd(-10, 30), g: 0, t: 0, life: rnd(.9, 1.4), color: pick([color, HB.skins.mix(color, 'w', .3), HB.skins.mix(color, 'k', .2)]), r: rnd(10, 18) }));
       }
     },
+    dandelion: {
+      spawn(emit, x, y, sp, spd, dt, color, st) {
+        every(st, dt, 6 + spd * .03, () => emit({ k: 'seed', soft: true, x: x + rnd(-sp, sp), y: y + rnd(-sp * .4, sp * .4), vx: 0, vy: rnd(-40, -15), g: -6, t: 0, life: rnd(1.6, 2.4), color: '#FFFFFF', r: rnd(4, 6), rot: rnd(0, TAU) }));
+      }
+    },
+    butterflies: {
+      spawn(emit, x, y, sp, spd, dt, color, st) {
+        every(st, dt, 3 + spd * .018, () => emit({ k: 'butterfly', soft: true, x: x + rnd(-sp, sp), y: y + rnd(-sp * .4, sp * .4), vx: rnd(-40, 40), vy: rnd(-60, -20), g: 0, t: 0, life: rnd(1.4, 2.2), color: pick(['#FF7AA2', '#FFD23F', '#7AD7FF', '#B388EB', '#FF9F4A', '#6EE7B7']), r: rnd(6.5, 9.5), rot: rnd(0, TAU) }));
+      }
+    },
     rainbow: {
       ribbon: true, keep: .5,
       spawn(emit, x, y, sp, spd, dt, color, st) {
@@ -490,6 +561,24 @@
         for (let i = 0; i < 4; i++) api.push({ k: 'blob', x, y, vx: rnd(-200, 200), vy: rnd(-260, -80), g: 900, t: 0, life: rnd(.5, .8), color, r: rnd(3, 5.5) });
       },
       clear(api, cx, cy, info) { if (!info.silent) HB.sfx.paint(); }
+    },
+    bloom: {
+      hideTile: true,
+      cell(api, x, y, color) {
+        api.push({ k: 'bloom', x, y, vx: 0, vy: 0, g: 0, t: 0, life: 1, color, r: 17, rot: rnd(0, TAU) });
+        for (let i = 0; i < 6; i++) api.push({ k: 'petal', x, y, vx: 0, vy: rnd(-90, -30), g: 90, t: -rnd(.45, .6), life: rnd(1.3, 1.9), color: i % 2 ? color : HB.skins.mix(color, 'w', .4), r: rnd(3.5, 5.5), rot: rnd(0, TAU), vr: rnd(-3, 3), soft: true });
+      },
+      clear(api, cx, cy, info) { if (!info.silent) HB.sfx.bloom(); }
+    },
+    supernova: {
+      cell(api, x, y, color) {
+        api.push({ k: 'nova', x, y, vx: 0, vy: 0, g: 0, t: 0, life: .9, color, r: 16, rot: rnd(0, TAU) });
+        for (let i = 0; i < 6; i++) { const a = rnd(0, TAU), v = rnd(40, 110); api.push({ k: 'star4', soft: true, x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, g: 0, t: 0, life: rnd(.7, 1.1), color: i % 2 ? '#FFFFFF' : color, r: rnd(2.5, 4.5) }); }
+      },
+      clear(api, cx, cy, info) {
+        api.push({ k: 'flash', x: cx, y: cy, vx: 0, vy: 0, t: 0, life: .5, color: '#FFFFFF', r: 110, soft: true });
+        if (!info.silent) HB.sfx.supernova();
+      }
     },
     fireworks: {
       cell(api, x, y, color) {

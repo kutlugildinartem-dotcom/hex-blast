@@ -9,6 +9,8 @@
   const FB = '"HB Body", "Nunito Sans", "Segoe UI", sans-serif';
   const AMBER = '#FFC857', CORAL = '#FF6B6B', MINT = '#4ADE9C', SKY = '#4CC9F0', PINK = '#FF8FD1', BOLTC = '#9FD8FF';
   const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, -1], [-1, 1]];
+  const DIRC = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];   // по кругу, для поворотов огня
+  const FIREC = '#FF9A3C';
   let H = 640, TY = 548, CY = 320, TOP = 0, BOT = 0, insetTop = 0, insetBottom = 0;
   const skin = () => HB.skins.current();
   const colorOf = ci => skin().colors[ci] || '#888888';
@@ -22,7 +24,7 @@
   const cells = [], map = new Map();
   for (let q = -4; q <= 4; q++) for (let r = -4; r <= 4; r++) {
     if (Math.abs(q + r) > 4) continue;
-    const cl = { idx: cells.length, q, r, x: 0, y: 0, ci: -1, v: 0, born: 0, bomb: false, pt: 9, fx: null, gt: -1 };
+    const cl = { idx: cells.length, q, r, x: 0, y: 0, ci: -1, v: 0, born: 0, bomb: false, fire: false, pt: 9, fx: null, gt: -1 };
     cells.push(cl); map.set(key(q, r), cl);
   }
   const lines = [];
@@ -45,17 +47,17 @@
   let pending = [], charge = 0, undoCharges = 0, snap = null, lastAward = 0, holdHint = false;
   let mode = 'idle', inputOn = false, endT = 0, time = 0;
   let freeze = 0, punch = 0, shake = 0, bgFlash = 0, bgFlashColor = '#A78BFA', whiteFlash = 0, idleT = 0, trailT = 0;
-  let parts = [], rings = [], floats = [], banners = [], splats = [], booms = [], strikes = [], hudFx = [], ripple = null, hudAcc = 0, flashTint = '255,245,230';
+  let parts = [], rings = [], floats = [], banners = [], splats = [], booms = [], strikes = [], hudFx = [], flames = [], crackT = 1, ripple = null, hudAcc = 0, flashTint = '255,245,230';
   const bgHex = Array.from({ length: 12 }, () => ({ x: rnd(0, W), y: rnd(0, 900), r: rnd(18, 60), s: rnd(4, 12), a: rnd(0, TAU), va: rnd(-.15, .15) }));
   const stars = Array.from({ length: 70 }, () => ({ x: rnd(0, W), y: rnd(0, 900), s: rnd(.8, 2), p: rnd(0, TAU) }));
 
   const pieceAt = i => i === 3 ? hold : tray[i];
-  function makePiece(i, delay, shape, ci, bomb = -1, vs = null, bolt = -1) {
+  function makePiece(i, delay, shape, ci, bomb = -1, vs = null, bolt = -1, fire = -1) {
     const offs = shape.map(([dq, dr]) => [S * R3 * (dq + dr / 2), S * 1.5 * dr]);
     const mx = offs.reduce((a, o) => a + o[0], 0) / offs.length, my = offs.reduce((a, o) => a + o[1], 0) / offs.length;
     const xs = offs.map(o => o[0]), ys = offs.map(o => o[1]);
     return {
-      shape, ci, bomb, bolt, vs: vs || shape.map(() => rand(10)), seed: rand(997),
+      shape, ci, bomb, bolt, fire, vs: vs || shape.map(() => rand(10)), seed: rand(997),
       offs: offs.map(o => [o[0] - mx, o[1] - my]),
       w: Math.max(...xs) - Math.min(...xs) + S * R3, h: Math.max(...ys) - Math.min(...ys) + S * 2,
       x: sx(i), y: TY + 40, sc: 0, scV: 0, rot: 0, delay, fits: true, fa: 1
@@ -81,14 +83,33 @@
     return true;
   }
   /** Какая особая сота придёт следующей: зависит от выбора в настройках. */
-  function nextSpecial() {
-    const m = HB.settings.special;
-    return m === 'bolt' ? 'bolt' : m === 'both' ? (Math.random() < .5 ? 'bolt' : 'bomb') : 'bomb';
-  }
+  const specials = () => (HB.settings.specials && HB.settings.specials.length ? HB.settings.specials : ['bomb']);
+  function nextSpecial() { const sp = specials(); return sp[rand(sp.length)]; }
   function earnSpecial() {
     const t = nextSpecial();
     pending.push(t);
-    showBanner(t === 'bolt' ? 'МОЛНИЯ ЗАРЯЖЕНА' : 'БОМБА ЗАРЯЖЕНА', t === 'bolt' ? BOLTC : CORAL);
+    showBanner(t === 'bolt' ? 'МОЛНИЯ ЗАРЯЖЕНА' : t === 'fire' ? 'КОСТЁР ГОТОВ' : 'БОМБА ЗАРЯЖЕНА', t === 'bolt' ? BOLTC : t === 'fire' ? FIREC : CORAL);
+  }
+  /** Путь огня от костра: случайно прямо, змейкой или зигзагом по занятым сотам. */
+  function firePath(start, n) {
+    const path = [], seen = new Set([start]);
+    let cur = start, dir = rand(6), hops = 0;
+    while (path.length < n && hops < 40) {
+      hops++;
+      const r0 = Math.random();
+      const pref = r0 < .45 ? [0, 1, -1, 2, -2, 3] : r0 < .72 ? [1, 0, -1, 2, -2, 3] : [-1, 0, 1, -2, 2, 3];
+      let next = null, nd = dir, hop = null, hd = dir;
+      for (const tt of pref) {
+        const d = (dir + tt + 6) % 6, c = map.get(key(cur.q + DIRC[d][0], cur.r + DIRC[d][1]));
+        if (!c || seen.has(c)) continue;
+        if (c.ci >= 0) { next = c; nd = d; break; }
+        if (!hop) { hop = c; hd = d; }
+      }
+      if (!next && !hop) break;
+      cur = next || hop; dir = next ? nd : hd; seen.add(cur);
+      if (next) path.push(cur);
+    }
+    return path;
   }
   /** Линия через соту-молнию, в которой больше всего занятых клеток. */
   function strikeLineFor(cell, extra) {
@@ -114,7 +135,7 @@
       const give = (p, type) => { p[type] = rand(p.shape.length); };
       if (HB.settings.bombSource === 'random') ps.forEach(p => { if (Math.random() < .08) give(p, nextSpecial()); });
       while (pending.length) {
-        const free = ps.filter(p => p.bomb < 0 && p.bolt < 0);
+        const free = ps.filter(p => p.bomb < 0 && p.bolt < 0 && p.fire < 0);
         if (!free.length) break;
         give(free[rand(free.length)], pending.shift());
       }
@@ -124,17 +145,17 @@
   }
 
   /* ---------- сохранение ---------- */
-  const serPiece = p => p ? { shape: p.shape, ci: p.ci, bomb: p.bomb, bolt: p.bolt, vs: p.vs } : null;
+  const serPiece = p => p ? { shape: p.shape, ci: p.ci, bomb: p.bomb, bolt: p.bolt, fire: p.fire, vs: p.vs } : null;
   function snapshot() {
     return {
-      cells: cells.map(c => [c.ci, c.bomb ? 1 : 0, c.v]), tray: tray.map(serPiece), hold: serPiece(hold),
+      cells: cells.map(c => [c.ci, c.bomb ? 1 : 0, c.v, c.fire ? 1 : 0]), tray: tray.map(serPiece), hold: serPiece(hold),
       score, combo, miss, stat: Object.assign({}, stat), pending: pending.slice(), charge, recordShown
     };
   }
   function restore(s) {
-    cells.forEach((c, i) => { c.ci = s.cells[i][0]; c.bomb = !!s.cells[i][1]; c.v = s.cells[i][2] || (i * 7) % 10; c.born = time; c.pt = 9; c.fx = null; c.gt = -1; });
-    tray = s.tray.map((p, i) => p ? makePiece(i, i * .06, p.shape, p.ci, p.bomb, p.vs, p.bolt == null ? -1 : p.bolt) : null);
-    hold = s.hold ? makePiece(3, .1, s.hold.shape, s.hold.ci, s.hold.bomb, s.hold.vs, s.hold.bolt == null ? -1 : s.hold.bolt) : null;
+    cells.forEach((c, i) => { c.ci = s.cells[i][0]; c.bomb = !!s.cells[i][1]; c.fire = !!s.cells[i][3]; c.v = s.cells[i][2] || (i * 7) % 10; c.born = time; c.pt = 9; c.fx = null; c.gt = -1; });
+    tray = s.tray.map((p, i) => p ? makePiece(i, i * .06, p.shape, p.ci, p.bomb, p.vs, p.bolt == null ? -1 : p.bolt, p.fire == null ? -1 : p.fire) : null);
+    hold = s.hold ? makePiece(3, .1, s.hold.shape, s.hold.ci, s.hold.bomb, s.hold.vs, s.hold.bolt == null ? -1 : s.hold.bolt, s.hold.fire == null ? -1 : s.hold.fire) : null;
     score = s.score; combo = s.combo; miss = s.miss; stat = Object.assign({ lines: 0, maxCombo: 0, clears: 0 }, s.stat);
     pending = Array.isArray(s.pending) ? s.pending.slice() : Array(s.pendingBomb || 0).fill('bomb'); charge = s.charge || 0; recordShown = !!s.recordShown;
     drag = ghost = preview = null;
@@ -298,7 +319,7 @@
     const pc = pieceAt(drag.i), placed = [];
     pc.shape.forEach(([dq, dr], k) => {
       const cl = map.get(key(ghost.aq + dq, ghost.ar + dr));
-      cl.ci = pc.ci; cl.bomb = k === pc.bomb; cl.v = pc.vs[k] | 0; cl.born = time; cl.pt = 0; placed.push(cl);
+      cl.ci = pc.ci; cl.bomb = k === pc.bomb; cl.fire = k === pc.fire; cl.v = pc.vs[k] | 0; cl.born = time; cl.pt = 0; placed.push(cl);
     });
     if (drag.i === 3) hold = null; else tray[drag.i] = null;
     score += pc.shape.length;
@@ -307,6 +328,7 @@
     ripple = { x: ox, y: oy, t: 0 };
     shake = Math.max(shake, 3);
     HB.sfx.place(placed.length, (ox - 180) / 180); HB.haptic('place');
+    if (pc.fire >= 0) { setTimeout(() => { HB.sfx.ignite(); HB.haptic('ignite'); }, 60); const fc = placed[pc.fire]; for (let i = 0; i < 12; i++) parts.push({ k: 'ember', soft: true, x: fc.x, y: fc.y, vx: rnd(-50, 50), vy: rnd(-150, -60), g: -20, t: 0, life: rnd(.6, 1.1), color: '#FFB347', r: rnd(1.2, 2.2) }); }
 
     const full = lines.filter(l => l.every(cl => cl.ci >= 0));
     const boltCell = pc.bolt >= 0 ? placed[pc.bolt] : null;
@@ -337,43 +359,69 @@
         }
         strikeFx(boltCell, strike, ringList);
       }
-      // Бомбы: взрыв задевает соседей в радиусе силы и поджигает другие бомбы цепочкой.
+      // Цепочка особых сот: бомбы и костры поджигают друг друга, молния заряжает и тех и других.
       const power = HB.settings.bombPower === 2 ? 2 : 1;
-      const queue = [...u].filter(c => c.bomb), done = new Set();
+      const queue = [...u].filter(c => c.bomb || c.fire), done = new Set(), burnt = new Set(), blasted = new Set();
+      let fires = 0, napalm = false, storm = false, fireBlast = false;
+      const addCell = (c, d) => {
+        if (!u.has(c)) { if (c.ci < 0) return; u.add(c); delay.set(c, d); }
+        else delay.set(c, Math.min(delay.get(c), d));
+        if ((c.bomb || c.fire) && !done.has(c)) queue.push(c);
+      };
       while (queue.length) {
         const b = queue.shift();
         if (done.has(b)) continue;
         done.add(b);
-        const zap = zapped.has(b), pw = power + (zap ? 1 : 0);
-        const at = delay.get(b), bp = 75 * Math.pow(2, done.size - 1) * (zap ? 2 : 1);
-        if (zap) charged = true;
-        bombPts += bp;
-        booms.push({ x: b.x, y: b.y, t: -at, fired: false, power: pw, pts: bp, charged: zap });
-        for (const c of cells) {
-          if (c.ci < 0 || u.has(c) || cdist(b, c) > pw) continue;
-          u.add(c); delay.set(c, at + .12 + cdist(b, c) * .07);
-          if (c.bomb) queue.push(c);
+        const at = delay.get(b), mult = Math.pow(2, done.size - 1);
+        if (b.bomb) {
+          const zap = zapped.has(b), nap = burnt.has(b) && !zap, pw = power + (zap || nap ? 1 : 0);
+          const bp = 75 * mult * (zap || nap ? 2 : 1);
+          if (zap) charged = true;
+          if (nap) napalm = true;
+          bombPts += bp;
+          booms.push({ x: b.x, y: b.y, t: -at, fired: false, power: pw, pts: bp, charged: zap, napalm: nap });
+          for (const c of cells) if (c !== b && c.ci >= 0 && cdist(b, c) <= pw) { blasted.add(c); addCell(c, at + .12 + cdist(b, c) * .07); }
+        }
+        if (b.fire) {
+          fires++;
+          const zap = zapped.has(b), boom = blasted.has(b);
+          if (zap) storm = true;
+          if (boom) fireBlast = true;
+          const walks = zap ? 3 : boom ? 2 : 1, bp = 90 * mult * (zap ? 2 : 1);
+          bombPts += bp;
+          booms.push({ x: b.x, y: b.y, t: -at, fired: false, fire: true, pts: bp, storm: zap });
+          for (let w = 0; w < walks; w++) {
+            const len = walks === 1 ? 6 + rand(3) : walks === 2 ? 5 + rand(3) : 4 + rand(2);
+            firePath(b, len).forEach((c, i) => {
+              const d = at + .18 + w * .06 + i * .09;
+              burnt.add(c); addCell(c, d);
+              flames.push({ x: c.x, y: c.y, t: -d });
+            });
+          }
         }
       }
       const delays = [], xs = [];
       u.forEach(c => {
-        c.fx = { ci: c.ci, v: c.v, bomb: c.bomb, charged: c.bomb && zapped.has(c), age: time - c.born, delay: delay.get(c), t: 0, burst: false, hole: { cx: ox, cy: oy } };
+        c.fx = { ci: c.ci, v: c.v, bomb: c.bomb, fire: c.fire, burning: burnt.has(c), charged: c.bomb && zapped.has(c), age: time - c.born, delay: delay.get(c), t: 0, burst: false, hole: { cx: ox, cy: oy } };
         delays.push(c.fx.delay); xs.push((c.x - 180) / 180);
-        c.ci = -1; c.bomb = false;
+        c.ci = -1; c.bomb = false; c.fire = false;
       });
       const BC = HB.fx.bursts[HB.profile.burst];
       if (BC) BC.clear(fxApi, ox, oy, { lines: full.length || 1 });
       let pts = Math.round(lineCells * 10 * full.length * (1 + (combo - 1) * .5)) + (u.size - lineCells - strikeCells) * 15 + strikeCells * 12 + bombPts;
       const bits = [];
       if (strike) bits.push(ringList.length ? 'КОЛЬЦО МОЛНИЙ' : 'МОЛНИЯ!');
+      const nb = [...done].filter(c => c.bomb).length;
       if (charged) bits.push('ГРОМОВОЙ ВЗРЫВ');
-      else if (done.size) bits.push(done.size > 1 ? 'БАБАХ ×' + done.size : 'БАБАХ!');
+      else if (napalm) bits.push('НАПАЛМ');
+      else if (nb) bits.push(nb > 1 ? 'БАБАХ ×' + nb : 'БАБАХ!');
+      if (fires) bits.push(storm ? 'ОГНЕННАЯ БУРЯ' : fires > 1 ? 'ЛЕСНОЙ ПОЖАР ×' + fires : fireBlast ? 'ОГНЕННЫЙ ВЗРЫВ' : 'КОСТЁР!');
       if (full.length > 1) bits.push(full.length + ' ' + U.plural(full.length, 'ЛИНИЯ', 'ЛИНИИ', 'ЛИНИЙ'));
       if (combo > 1) bits.push('КОМБО ×' + combo);
       if (cells.every(c => c.ci < 0)) { pts += 300; stat.clears++; bits.push('ЧИСТОЕ ПОЛЕ'); confetti(); }
       score += pts;
       floatText('+' + U.fmt(pts), ox, oy, 30 + Math.min(full.length, 4) * 5);
-      if (bits.length) showBanner(bits.join(' · '), charged ? '#C9E8FF' : done.size ? CORAL : strike ? BOLTC : comboColor(combo));
+      if (bits.length) showBanner(bits.join(' · '), charged ? '#C9E8FF' : fires ? FIREC : nb ? CORAL : strike ? BOLTC : comboColor(combo));
       rings.push({ x: ox, y: oy, t: 0, color: colorOf(pc.ci), big: false });
       shake = Math.max(shake, 5 + full.length * 3 + Math.min(combo, 6));
       bgFlash = 1; bgFlashColor = colorOf(pc.ci);
@@ -453,11 +501,11 @@
     return true;
   }
   function newGame() {
-    cells.forEach(c => { c.ci = -1; c.bomb = false; c.pt = 9; c.fx = null; c.gt = -1; });
+    cells.forEach(c => { c.ci = -1; c.bomb = false; c.fire = false; c.pt = 9; c.fx = null; c.gt = -1; });
     score = shown = 0; combo = miss = 0; stat = { lines: 0, maxCombo: 0, clears: 0 };
     pending = []; charge = 0; undoCharges = 0; snap = null; lastAward = 0; hold = null; holdHint = false;
     best = HB.best(); bestAtStart = best; recordShown = false; isRecord = false;
-    parts = []; rings = []; floats = []; banners = []; splats = []; booms = []; strikes = []; hudFx = [];
+    parts = []; rings = []; floats = []; banners = []; splats = []; booms = []; strikes = []; hudFx = []; flames = [];
     drag = ghost = preview = null; idleT = 0;
     refill(); updateFits();
     mode = 'play';
@@ -470,7 +518,32 @@
     o[k + 'V'] = v + (K * (target - o[k]) - D * v) * dt;
     o[k] += o[k + 'V'] * dt;
   }
+  function igniteFx(b) {
+    HB.sfx.bonfire(b.storm); HB.haptic('fire');
+    if (b.pts) floatText('+' + U.fmt(b.pts), b.x, b.y - 20, 26, FIREC);
+    shake = Math.max(shake, b.storm ? 24 : 13); whiteFlash = Math.max(whiteFlash, b.storm ? 1.1 : .55); flashTint = '255,190,120';
+    freeze = Math.max(freeze, .08); punch = Math.max(punch, .06);
+    bgFlash = 1; bgFlashColor = '#FF7A1A';
+    rings.push({ x: b.x, y: b.y, t: 0, color: FIREC, big: true });
+    for (let i = 0; i < 26; i++) parts.push({ k: 'flamep', x: b.x + rnd(-10, 10), y: b.y + rnd(-6, 8), vx: rnd(-60, 60), vy: rnd(-200, -60), g: -40, t: 0, life: rnd(.4, .8), color: '#FF8A00', r: rnd(10, 18) });
+    for (let i = 0; i < 26; i++) parts.push({ k: 'ember', soft: true, x: b.x, y: b.y, vx: rnd(-160, 160), vy: rnd(-300, -80), g: 60, t: 0, life: rnd(.8, 1.5), color: i % 3 ? '#FFB347' : '#FFE08A', r: rnd(1.2, 2.6) });
+    for (let i = 0; i < 5; i++) parts.push({ k: 'crumb', x: b.x, y: b.y, vx: rnd(-150, 150), vy: rnd(-250, -100), g: 800, t: 0, life: rnd(.7, 1), color: i % 2 ? '#6B3F1F' : '#2A1608', r: rnd(4, 7), rot: rnd(0, TAU), vr: rnd(-10, 10) });
+    for (let i = 0; i < 6; i++) parts.push({ k: 'smoke', x: b.x + rnd(-8, 8), y: b.y, vx: rnd(-40, 40), vy: rnd(-90, -40), g: -20, t: 0, life: rnd(1, 1.6), color: 'rgba(50,35,30,.5)', r: rnd(10, 18) });
+  }
   function explode(b) {
+    if (b.fire) { igniteFx(b); return; }
+    if (b.napalm) {
+      HB.sfx.napalm(); HB.haptic('bomb');
+      if (b.pts) floatText('+' + U.fmt(b.pts), b.x, b.y - 20, 28, FIREC);
+      shake = Math.max(shake, 24); whiteFlash = 1.2; flashTint = '255,170,90'; freeze = Math.max(freeze, .12); punch = Math.max(punch, .09);
+      rings.push({ x: b.x, y: b.y, t: 0, color: '#FF5A1A', big: true, huge: true });
+      rings.push({ x: b.x, y: b.y, t: -.08, color: AMBER, big: true });
+      for (let i = 0; i < 40; i++) parts.push({ k: 'flamep', x: b.x + rnd(-14, 14), y: b.y + rnd(-10, 10), vx: rnd(-160, 160), vy: rnd(-240, -40), g: -30, t: 0, life: rnd(.4, .9), color: '#FF8A00', r: rnd(10, 22) });
+      sparks(b.x, b.y, AMBER, 26, 340);
+      shards(b.x, b.y, '#2A1608', 10, 1.7);
+      for (let i = 0; i < 12; i++) parts.push({ k: 'smoke', x: b.x + rnd(-12, 12), y: b.y + rnd(-12, 12), vx: rnd(-80, 80), vy: rnd(-110, -20), g: -20, t: 0, life: rnd(1, 1.6), color: 'rgba(60,35,25,.55)', r: rnd(12, 24) });
+      return;
+    }
     if (b.charged) {
       HB.sfx.thunderBomb(); HB.haptic('thunderbomb');
       if (b.pts) floatText('+' + U.fmt(b.pts), b.x, b.y - 20, 28 + Math.min(12, Math.log2(b.pts / 75) * 4), '#C9E8FF');
@@ -516,6 +589,23 @@
     for (const b of booms) { b.t += dt; if (!b.fired && b.t >= 0) { b.fired = true; explode(b); } }
     booms = booms.filter(b => !b.fired);
     if (ripple && (ripple.t += dt) > 1.4) ripple = null;
+    let licks = 0;
+    for (const f of flames) {
+      f.t += dt;
+      if (f.t >= 0 && !f.done) {
+        f.done = true;
+        for (let i = 0; i < 8; i++) parts.push({ k: 'flamep', x: f.x + rnd(-8, 8), y: f.y + rnd(-4, 8), vx: rnd(-25, 25), vy: rnd(-150, -60), g: -40, t: 0, life: rnd(.35, .7), color: '#FF8A00', r: rnd(8, 14) });
+        for (let i = 0; i < 6; i++) parts.push({ k: 'ember', soft: true, x: f.x, y: f.y, vx: rnd(-90, 90), vy: rnd(-200, -60), g: 40, t: 0, life: rnd(.6, 1.1), color: '#FFB347', r: rnd(1, 2) });
+        parts.push({ k: 'smoke', x: f.x, y: f.y, vx: rnd(-20, 20), vy: rnd(-70, -30), g: -15, t: 0, life: 1.1, color: 'rgba(45,30,25,.45)', r: rnd(8, 12) });
+        if (licks++ < 2) HB.sfx.flameLick((f.x - 180) / 180);
+      }
+    }
+    flames = flames.filter(f => !f.done);
+    const lit = cells.filter(c => c.ci >= 0 && c.fire);
+    if (lit.length && mode !== 'over') {
+      if ((crackT -= dt) <= 0) { HB.sfx.crackle(); crackT = rnd(.25, 1) / Math.min(2, lit.length); }
+      lit.forEach(c => { if (Math.random() < dt * 4) parts.push({ k: 'ember', soft: true, x: c.x + rnd(-5, 5), y: c.y - 6, vx: rnd(-15, 15), vy: rnd(-70, -35), g: -10, t: 0, life: rnd(.7, 1.2), color: '#FFB347', r: rnd(.8, 1.6) }); });
+    }
     for (const s of strikes) s.t += dt;
     strikes = strikes.filter(s => s.t < (s.life || .6));
     if (combo >= 2 && mode === 'play') {
@@ -668,6 +758,45 @@
     c.fillStyle = '#FFE45C'; c.fill(); c.lineWidth = R * .07; c.strokeStyle = '#FFFFFF'; c.lineJoin = 'round'; c.stroke();
     if (Math.sin(t * 23) > .6) { c.strokeStyle = 'rgba(200,230,255,.9)'; c.lineWidth = 1.2; c.beginPath(); jag(c, x + R * .3, y - R * .4, x + R * .6, y - R * .7, 3, 3); c.stroke(); }
   }
+  function flameTongue(c, x, base, h, w, sway) {
+    [[1, 'rgba(255,80,20,.8)'], [.68, 'rgba(255,170,40,.9)'], [.38, 'rgba(255,245,200,.95)']].forEach(([k, col]) => {
+      const hh = h * k, ww = w * k, sx = sway * k;
+      c.fillStyle = col; c.beginPath(); c.moveTo(x - ww, base);
+      c.bezierCurveTo(x - ww, base - hh * .45, x + sx - ww * .25, base - hh * .78, x + sx, base - hh);
+      c.bezierCurveTo(x + sx + ww * .25, base - hh * .78, x + ww, base - hh * .45, x + ww, base);
+      c.closePath(); c.fill();
+    });
+  }
+  /** Костёр на соте: два бревна крест-накрест и три живых языка пламени. */
+  function drawBonfire(c, x, y, R, t, flare = 1) {
+    c.save(); c.translate(x, y + R * .3);
+    [.45, -.45].forEach(rot => {
+      c.save(); c.rotate(rot);
+      c.fillStyle = '#6B3F1F'; c.beginPath(); c.ellipse(0, 0, R * .5, R * .12, 0, 0, TAU); c.fill();
+      c.fillStyle = 'rgba(255,255,255,.12)'; c.fillRect(-R * .45, -R * .1, R * .9, R * .04);
+      c.fillStyle = '#C08A55'; c.beginPath(); c.ellipse(R * .47, 0, R * .07, R * .11, 0, 0, TAU); c.fill();
+      c.restore();
+    });
+    c.save(); c.globalCompositeOperation = 'lighter';
+    const eg = c.createRadialGradient(0, 0, 0, 0, 0, R * .5); eg.addColorStop(0, 'rgba(255,140,40,.8)'); eg.addColorStop(1, 'rgba(255,80,0,0)');
+    c.fillStyle = eg; c.beginPath(); c.arc(0, 0, R * .5, 0, TAU); c.fill();
+    c.restore(); c.restore();
+    c.save(); c.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < 3; i++) {
+      const sd = i * 2.1 + x * .013, n = .75 + .18 * Math.sin(t * 9 + sd) + .12 * Math.sin(t * 15.3 + sd * 2) + .08 * Math.sin(t * 27 + sd);
+      flameTongue(c, x + (i - 1) * R * .2, y + R * .32, R * (i === 1 ? 1.4 : .95) * n * flare, R * (i === 1 ? .3 : .2), Math.sin(t * 4 + sd) * R * .1);
+    }
+    c.restore();
+  }
+  /** Тёплый живой свет костра на соседних сотах: мерцает на нескольких частотах сразу. */
+  function fireLight(c, x, y, t, k = 1) {
+    const fl = .72 + .14 * Math.sin(t * 9.3 + x) + .09 * Math.sin(t * 23.7 + y) + .05 * Math.sin(t * 41);
+    c.save(); c.globalCompositeOperation = 'lighter';
+    const g = c.createRadialGradient(x, y, 4, x, y, S * 3.4);
+    g.addColorStop(0, `rgba(255,170,80,${.46 * fl * k})`); g.addColorStop(.45, `rgba(255,120,40,${.2 * fl * k})`); g.addColorStop(1, 'rgba(255,90,20,0)');
+    c.fillStyle = g; c.fillRect(x - S * 3.4, y - S * 3.4, S * 6.8, S * 6.8);
+    c.restore();
+  }
   function drawBoard(c) {
     const sk = skin();
     for (const cl of cells) HB.skins.empty(c, cl.x, cl.y, S * .93, sk);
@@ -697,6 +826,9 @@
       tile(c, cl.x, cl.y, S * .93 * sc, colorOf(cl.ci), { flash, grey, v: cl.v, age: time - cl.born, board: true, rip: rk - 1, seed: cl.idx * 7 + cl.v });
       if (cl.bomb) drawBomb(c, cl.x, cl.y, S * sc, time + cl.q);
     }
+    const lit = cells.filter(cl => cl.ci >= 0 && cl.fire);
+    lit.forEach(cl => fireLight(c, cl.x, cl.y, time));
+    lit.forEach(cl => { const age = time - cl.born; drawBonfire(c, cl.x, cl.y, S, time + cl.q, 1 + (age < 1 ? 1.4 * Math.exp(-4 * age) : 0)); });
     HB.skins.drawOver(c, { cx: 180, cy: CY, R: S * .93 });
     if (boltPreview && drag) {
       const fl = .5 + .5 * Math.sin(time * 30) * Math.sin(time * 11);
@@ -725,6 +857,7 @@
         o.flash = .25 + .25 * Math.sin(fx.t * 30);
         tile(c, cl.x, cl.y, S * .93, col, o);
         if (fx.bomb) drawBomb(c, cl.x, cl.y, S, time * 3);
+        if (fx.fire) { fireLight(c, cl.x, cl.y, time, 1.5); drawBonfire(c, cl.x, cl.y, S, time * 1.6, 1.6); }
         if (fx.charged) {
           c.save(); c.globalCompositeOperation = 'lighter'; c.lineCap = 'round';
           c.beginPath(); for (let i = 0; i < 3; i++) jag(c, cl.x, cl.y, cl.x + rnd(-20, 20), cl.y + rnd(-20, 20), 3, 4);
@@ -757,6 +890,7 @@
       tile(c, px, py, S * .93 * sc, col, { alpha, rot, v: p.vs[k], seed: p.seed + k * 7 });
       if (k === p.bomb) { c.globalAlpha = alpha; drawBomb(c, px, py, S * sc, time); c.globalAlpha = 1; }
       if (k === p.bolt) { c.globalAlpha = alpha; drawBolt(c, px, py, S * sc, time + k); c.globalAlpha = 1; }
+      if (k === p.fire) { c.globalAlpha = alpha; drawBonfire(c, px, py, S * sc, time + k, .85); c.globalAlpha = 1; }
     });
   }
   function drawTray(c) {
@@ -858,14 +992,18 @@
       const need = HB.settings.bombSource === 'combo' ? 3 : 6;
       const have = HB.settings.bombSource === 'combo' ? combo % 3 : charge;
       const bx = 340 - need * 9 - 12, by = 76 + TOP;
-      if (HB.settings.special === 'bolt') drawBolt(c, bx, by, 13, time);
-      else if (HB.settings.special === 'both') { drawBomb(c, bx - 6, by, 11, time); drawBolt(c, bx + 5, by + 1, 11, time); }
-      else drawBomb(c, bx, by, 13, time);
+      const sp = specials();
+      sp.forEach((k2, i) => {
+        const ix = bx - (sp.length - 1 - i) * 12;
+        if (k2 === 'bolt') drawBolt(c, ix, by, 11, time);
+        else if (k2 === 'fire') drawBonfire(c, ix, by - 3, 10, time, .8);
+        else drawBomb(c, ix, by, 11, time);
+      });
       for (let i = 0; i < need; i++) {
         c.beginPath(); c.arc(bx + 16 + i * 9, by + 1, 3.2, 0, TAU);
         c.fillStyle = i < have ? CORAL : 'rgba(255,255,255,.15)'; c.fill();
       }
-      if (pending.length) text(c, '×' + pending.length, bx - 16, by + 1, `800 12px ${FB}`, pending[0] === 'bolt' ? BOLTC : CORAL, 'right');
+      if (pending.length) text(c, '×' + pending.length, bx - 16 - (specials().length - 1) * 12, by + 1, `800 12px ${FB}`, pending[0] === 'bolt' ? BOLTC : pending[0] === 'fire' ? FIREC : CORAL, 'right');
     }
   }
   function drawBanner(c) {
@@ -998,6 +1136,7 @@
       newGame();
       cells.forEach(c => { if (c.r === 0 && c.q !== 0) c.ci = 1; });
       const b = map.get(key(1, -1)); b.ci = 2; b.bomb = true;
+      if (HB.settings._fireTest) { const f = map.get(key(2, 0)); f.fire = true; }
       map.get(key(0, 1)).ci = 4; map.get(key(-1, 1)).ci = 5;
       tray[0] = makePiece(0, 0, [[0, 0]], 3, -1, null, 0); tray[0].delay = 0;
       updateFits();
