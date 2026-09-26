@@ -117,6 +117,23 @@
     s.connect(f); f.connect(g); out(g, pan, rev);
     s.start(t); s.stop(t + attack + dur + .05);
   }
+  /** Раскатистый рокот коричневого шума: основа грома. */
+  function rumble(t, len, peak) {
+    const s = ac.createBufferSource(); s.buffer = brown;
+    const f = ac.createBiquadFilter(); f.type = 'lowpass'; f.Q.value = .7;
+    f.frequency.setValueAtTime(1100, t); f.frequency.exponentialRampToValueAtTime(65, t + len);
+    const g = ac.createGain();
+    g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(peak, t + .08);
+    let tt = t + .08, lvl = peak;
+    while (tt < t + len * .88) {
+      tt += .1 + Math.random() * .28;
+      lvl *= .74 + Math.random() * .3;
+      g.gain.exponentialRampToValueAtTime(Math.max(.0003, lvl * (.45 + Math.random() * .75)), tt);
+    }
+    g.gain.exponentialRampToValueAtTime(.0001, t + len);
+    s.connect(f); f.connect(g); out(g, 0, 1);
+    s.start(t); s.stop(t + len + .1);
+  }
   function pad(freqs, t, { vol = .06, attack = .08, dur = 1.2 } = {}) {
     freqs.forEach((fr, i) => {
       const o = ac.createOscillator(); o.type = 'triangle'; o.frequency.value = fr;
@@ -475,6 +492,24 @@
       s.start(t); s.stop(t + 4.4);
       thud(t + .05, { vol: 1, from: 95, to: 24, dur: 1.4 });
       thud(t + .9 + Math.random() * .4, { vol: .5, from: 60, to: 22, dur: 1.2 });
+    },
+    /** Второй удар молнии по кольцу: сухой треск со всех сторон и новый раскат. */
+    ringZap() {
+      if (!ready()) return; const t = now();
+      for (let i = 0; i < 14; i++) noiseHit(t + Math.random() * .15, { vol: .25 + Math.random() * .3, dur: .01 + Math.random() * .02, freq: 3000 + Math.random() * 6000, type: 'highpass', pan: Math.cos(i / 14 * Math.PI * 2) * .9, rev: .4, attack: .001 });
+      noiseHit(t + .03, { vol: .8, dur: .35, freq: 8000, to: 400, type: 'lowpass', q: .5, rev: .9, attack: .002 });
+      thud(t + .03, { vol: .8, from: 85, to: 24, dur: 1.1 });
+      rumble(t + .05, 2.2, 1.2);
+    },
+    /** Молния + бомба: взрыв, хлёсткий разряд и самый глубокий, долгий раскат. */
+    thunderBomb() {
+      if (!ready()) return; const t = now();
+      sfx.bomb();
+      for (let i = 0; i < 16; i++) noiseHit(t + Math.random() * .12, { vol: .2 + Math.random() * .3, dur: .012 + Math.random() * .02, freq: 3000 + Math.random() * 6000, type: 'highpass', pan: Math.random() * 1.8 - .9, rev: .4, attack: .001 });
+      noiseHit(t + .02, { vol: 1, dur: .45, freq: 9000, to: 300, type: 'lowpass', q: .5, rev: 1, attack: .002 });
+      thud(t, { vol: 1, from: 70, to: 18, dur: 2 });
+      thud(t + .5 + Math.random() * .3, { vol: .6, from: 55, to: 20, dur: 1.4 });
+      rumble(t + .04, 3.6, 1.9);
     },
     fuse() {
       if (!ready()) return; const t = now();

@@ -95,6 +95,7 @@
     const filled = l => l.filter(c => c.ci >= 0 || (extra && extra.has(c))).length;
     return lines.filter(l => l.includes(cell)).reduce((a, b) => filled(b) > filled(a) ? b : a);
   }
+  const ringOf = cell => DIRS.map(([dq, dr]) => map.get(key(cell.q + dq, cell.r + dr))).filter(Boolean);
   function groupOf(start) {
     const seen = new Set(start), st = [...start];
     while (st.length) {
@@ -253,6 +254,7 @@
       if (pc.bolt >= 0) {
         const bc = map.get(key(aq + pc.shape[pc.bolt][0], ar + pc.shape[pc.bolt][1]));
         boltPreview = strikeLineFor(bc, set).filter(c => c.ci >= 0 || set.has(c));
+        if (lines.some(l => l.includes(bc) && l.every(c => c.ci >= 0 || set.has(c)))) boltPreview = boltPreview.concat(ringOf(bc).filter(c => c.ci >= 0 || set.has(c)));
       }
     } else { ghost = null; preview = null; boltPreview = null; }
   }
@@ -315,14 +317,25 @@
       const u = new Set(), delay = new Map();
       full.forEach(l => l.forEach(cl => { u.add(cl); delay.set(cl, Math.hypot(cl.x - ox, cl.y - oy) / 520); }));
       const lineCells = u.size;
-      let strikeCells = 0, bombPts = 0;
+      let strikeCells = 0, bombPts = 0, ringList = [], charged = false;
+      const zapped = new Set();
       if (strike) {
         strike.forEach(cl => {
           if (cl.ci < 0) return;
+          zapped.add(cl);
           const d = .12 + Math.hypot(cl.x - boltCell.x, cl.y - boltCell.y) / 1300;
           if (u.has(cl)) delay.set(cl, Math.min(delay.get(cl), d)); else { u.add(cl); delay.set(cl, d); strikeCells++; }
         });
-        strikeFx(boltCell, strike);
+        // Молния замкнула свой ряд — вторым ударом бьёт по кольцу соседей.
+        if (full.some(l => l.includes(boltCell))) {
+          ringList = ringOf(boltCell).filter(c => c.ci >= 0);
+          ringList.forEach(cl => {
+            zapped.add(cl);
+            const d = .4 + Math.random() * .05;
+            if (u.has(cl)) delay.set(cl, Math.min(delay.get(cl), d)); else { u.add(cl); delay.set(cl, d); strikeCells++; }
+          });
+        }
+        strikeFx(boltCell, strike, ringList);
       }
       // Бомбы: взрыв задевает соседей в радиусе силы и поджигает другие бомбы цепочкой.
       const power = HB.settings.bombPower === 2 ? 2 : 1;
@@ -331,18 +344,20 @@
         const b = queue.shift();
         if (done.has(b)) continue;
         done.add(b);
-        const at = delay.get(b), bp = 75 * Math.pow(2, done.size - 1);
+        const zap = zapped.has(b), pw = power + (zap ? 1 : 0);
+        const at = delay.get(b), bp = 75 * Math.pow(2, done.size - 1) * (zap ? 2 : 1);
+        if (zap) charged = true;
         bombPts += bp;
-        booms.push({ x: b.x, y: b.y, t: -at, fired: false, power, pts: bp });
+        booms.push({ x: b.x, y: b.y, t: -at, fired: false, power: pw, pts: bp, charged: zap });
         for (const c of cells) {
-          if (c.ci < 0 || u.has(c) || cdist(b, c) > power) continue;
+          if (c.ci < 0 || u.has(c) || cdist(b, c) > pw) continue;
           u.add(c); delay.set(c, at + .12 + cdist(b, c) * .07);
           if (c.bomb) queue.push(c);
         }
       }
       const delays = [], xs = [];
       u.forEach(c => {
-        c.fx = { ci: c.ci, v: c.v, bomb: c.bomb, age: time - c.born, delay: delay.get(c), t: 0, burst: false, hole: { cx: ox, cy: oy } };
+        c.fx = { ci: c.ci, v: c.v, bomb: c.bomb, charged: c.bomb && zapped.has(c), age: time - c.born, delay: delay.get(c), t: 0, burst: false, hole: { cx: ox, cy: oy } };
         delays.push(c.fx.delay); xs.push((c.x - 180) / 180);
         c.ci = -1; c.bomb = false;
       });
@@ -350,14 +365,15 @@
       if (BC) BC.clear(fxApi, ox, oy, { lines: full.length || 1 });
       let pts = Math.round(lineCells * 10 * full.length * (1 + (combo - 1) * .5)) + (u.size - lineCells - strikeCells) * 15 + strikeCells * 12 + bombPts;
       const bits = [];
-      if (strike) bits.push('МОЛНИЯ!');
-      if (done.size) bits.push(done.size > 1 ? 'БАБАХ ×' + done.size : 'БАБАХ!');
+      if (strike) bits.push(ringList.length ? 'КОЛЬЦО МОЛНИЙ' : 'МОЛНИЯ!');
+      if (charged) bits.push('ГРОМОВОЙ ВЗРЫВ');
+      else if (done.size) bits.push(done.size > 1 ? 'БАБАХ ×' + done.size : 'БАБАХ!');
       if (full.length > 1) bits.push(full.length + ' ' + U.plural(full.length, 'ЛИНИЯ', 'ЛИНИИ', 'ЛИНИЙ'));
       if (combo > 1) bits.push('КОМБО ×' + combo);
       if (cells.every(c => c.ci < 0)) { pts += 300; stat.clears++; bits.push('ЧИСТОЕ ПОЛЕ'); confetti(); }
       score += pts;
       floatText('+' + U.fmt(pts), ox, oy, 30 + Math.min(full.length, 4) * 5);
-      if (bits.length) showBanner(bits.join(' · '), done.size ? CORAL : strike ? BOLTC : comboColor(combo));
+      if (bits.length) showBanner(bits.join(' · '), charged ? '#C9E8FF' : done.size ? CORAL : strike ? BOLTC : comboColor(combo));
       rings.push({ x: ox, y: oy, t: 0, color: colorOf(pc.ci), big: false });
       shake = Math.max(shake, 5 + full.length * 3 + Math.min(combo, 6));
       bgFlash = 1; bgFlashColor = colorOf(pc.ci);
@@ -392,9 +408,16 @@
     }
     afterMove();
   }
-  function strikeFx(cell, line) {
+  function strikeFx(cell, line, ring = []) {
     const pts = line.slice().sort((a, b) => a.x - b.x).map(c => [c.x, c.y]);
-    strikes.push({ x: cell.x, y: cell.y, line: pts, t: 0, sx: cell.x + rnd(-40, 40) });
+    strikes.push({ x: cell.x, y: cell.y, line: pts, t: 0, sx: cell.x + rnd(-40, 40), life: ring.length ? .85 : .6, ring: ring.map(c => [c.x, c.y]) });
+    if (ring.length) setTimeout(() => {
+      HB.sfx.ringZap(); HB.haptic('thunder');
+      flashTint = '205,230,255'; whiteFlash = Math.max(whiteFlash, .9);
+      shake = Math.max(shake, 22); punch = Math.max(punch, .07);
+      rings.push({ x: cell.x, y: cell.y, t: 0, color: BOLTC, big: true });
+      ring.forEach(c => { for (let i = 0; i < 3; i++) parts.push({ k: 'bolt', x: c.x, y: c.y, vx: rnd(-180, 180), vy: rnd(-180, 180), g: 0, t: 0, life: rnd(.25, .45), color: BOLTC, r: rnd(8, 14) }); });
+    }, 380);
     HB.sfx.thunder(); HB.haptic('thunder');
     flashTint = '205,230,255'; whiteFlash = 1.25;
     shake = Math.max(shake, 18); freeze = Math.max(freeze, .12); punch = Math.max(punch, .06);
@@ -448,6 +471,19 @@
     o[k] += o[k + 'V'] * dt;
   }
   function explode(b) {
+    if (b.charged) {
+      HB.sfx.thunderBomb(); HB.haptic('thunderbomb');
+      if (b.pts) floatText('+' + U.fmt(b.pts), b.x, b.y - 20, 28 + Math.min(12, Math.log2(b.pts / 75) * 4), '#C9E8FF');
+      shake = Math.max(shake, 28); whiteFlash = 1.5; flashTint = '205,230,255'; freeze = Math.max(freeze, .16); punch = Math.max(punch, .11);
+      rings.push({ x: b.x, y: b.y, t: 0, color: BOLTC, big: true, huge: true });
+      rings.push({ x: b.x, y: b.y, t: -.06, color: '#FFFFFF', big: true, huge: true });
+      rings.push({ x: b.x, y: b.y, t: -.14, color: CORAL, big: true });
+      sparks(b.x, b.y, BOLTC, 34, 400); sparks(b.x, b.y, '#FFFFFF', 18, 320);
+      for (let i = 0; i < 12; i++) parts.push({ k: 'bolt', x: b.x, y: b.y, vx: rnd(-260, 260), vy: rnd(-260, 260), g: 0, t: 0, life: rnd(.3, .5), color: BOLTC, r: rnd(12, 20) });
+      shards(b.x, b.y, '#2A2250', 12, 1.9);
+      for (let i = 0; i < 12; i++) parts.push({ k: 'smoke', x: b.x + rnd(-12, 12), y: b.y + rnd(-12, 12), vx: rnd(-80, 80), vy: rnd(-110, -20), g: -20, t: 0, life: rnd(.9, 1.4), color: 'rgba(40,40,90,.5)', r: rnd(12, 24) });
+      return;
+    }
     HB.sfx.bomb(); HB.haptic('bomb');
     if (b.pts) floatText('+' + U.fmt(b.pts), b.x, b.y - 20, 24 + Math.min(12, Math.log2(b.pts / 75) * 4), CORAL);
     shake = Math.max(shake, 16 + b.power * 4); whiteFlash = 1; flashTint = '255,245,230'; freeze = Math.max(freeze, .1); punch = Math.max(punch, .08);
@@ -481,7 +517,7 @@
     booms = booms.filter(b => !b.fired);
     if (ripple && (ripple.t += dt) > 1.4) ripple = null;
     for (const s of strikes) s.t += dt;
-    strikes = strikes.filter(s => s.t < .6);
+    strikes = strikes.filter(s => s.t < (s.life || .6));
     if (combo >= 2 && mode === 'play') {
       hudAcc += dt * (10 + Math.min(combo, 8) * 5) * (1 - miss * .25);
       while (hudAcc > 1) {
@@ -601,7 +637,7 @@
   }
   function drawStrikes(c) {
     for (const s of strikes) {
-      const k = s.t / .6, a = (s.t < .08 ? 1 : Math.random() < .3 ? .35 : 1) * (1 - k);
+      const k = s.t / (s.life || .6), a = (s.t < .08 ? 1 : Math.random() < .3 ? .35 : 1) * (1 - k);
       c.save(); c.globalCompositeOperation = 'lighter'; c.lineCap = 'round'; c.lineJoin = 'round';
       c.beginPath();
       jag(c, s.sx, -30, s.x, s.y, 12, 16);
@@ -610,6 +646,7 @@
         jag(c, bx, by, bx + rnd(-60, 60), by + rnd(20, 70), 4, 8);
       }
       for (let i = 1; i < s.line.length; i++) jag(c, s.line[i - 1][0], s.line[i - 1][1], s.line[i][0], s.line[i][1], 3, 7);
+      if (s.ring && s.ring.length && s.t > .36) s.ring.forEach(([tx, ty]) => { jag(c, s.x, s.y, tx, ty, 4, 6); jag(c, tx, ty, tx + rnd(-16, 16), ty + rnd(-16, 16), 3, 4); });
       c.strokeStyle = `rgba(110,170,255,${.2 * a})`; c.lineWidth = 18; c.stroke();
       c.strokeStyle = `rgba(160,210,255,${.55 * a})`; c.lineWidth = 7; c.stroke();
       c.strokeStyle = `rgba(255,255,255,${a})`; c.lineWidth = 2.4; c.stroke();
@@ -688,6 +725,12 @@
         o.flash = .25 + .25 * Math.sin(fx.t * 30);
         tile(c, cl.x, cl.y, S * .93, col, o);
         if (fx.bomb) drawBomb(c, cl.x, cl.y, S, time * 3);
+        if (fx.charged) {
+          c.save(); c.globalCompositeOperation = 'lighter'; c.lineCap = 'round';
+          c.beginPath(); for (let i = 0; i < 3; i++) jag(c, cl.x, cl.y, cl.x + rnd(-20, 20), cl.y + rnd(-20, 20), 3, 4);
+          c.strokeStyle = 'rgba(160,215,255,.9)'; c.lineWidth = 1.6; c.stroke();
+          c.restore();
+        }
         continue;
       }
       if (hideBurstTile) continue;
@@ -699,7 +742,7 @@
     drawStrikes(c);
     for (const r of rings) {
       if (r.t < 0) continue;
-      const life = r.big ? .7 : .55, p = r.t / life, maxR = r.big ? 230 : 150;
+      const life = r.big ? .7 : .55, p = r.t / life, maxR = r.huge ? 320 : r.big ? 230 : 150;
       c.globalAlpha = 1 - p; c.lineWidth = (r.big ? 12 : 7) * (1 - p) + 1; c.strokeStyle = r.color;
       hexPath(c, r.x, r.y, 18 + eo(p) * maxR, p * .6); c.stroke();
       c.globalAlpha = (1 - p) * .6; c.strokeStyle = '#FFFFFF'; c.lineWidth = 2;
@@ -949,7 +992,23 @@
       if (holdOn() && i >= 0) { stash(i); return true; }
       return false;
     },
-    _stash(i) { if (tray[i]) stash(i); }
+    _stash(i) { if (tray[i]) stash(i); },
+    /** Для автотеста: ряд r=0 без центра, бомба рядом, в лотке одиночная молния. */
+    _scenario() {
+      newGame();
+      cells.forEach(c => { if (c.r === 0 && c.q !== 0) c.ci = 1; });
+      const b = map.get(key(1, -1)); b.ci = 2; b.bomb = true;
+      map.get(key(0, 1)).ci = 4; map.get(key(-1, 1)).ci = 5;
+      tray[0] = makePiece(0, 0, [[0, 0]], 3, -1, null, 0); tray[0].delay = 0;
+      updateFits();
+    },
+    _placeAt(i, q, r) {
+      const pc = pieceAt(i);
+      drag = { i, px: 0, py: 0, lift: 0, dx: 0, vs: 0 }; ghost = { aq: q - pc.shape[0][0], ar: r - pc.shape[0][1] };
+      place();
+      drag = ghost = preview = boltPreview = null;
+    },
+    _score: () => score
   };
   window.hbSave = save;
 })();
