@@ -32,7 +32,8 @@
     sound: true, volume: .85,
     haptics: 2,            // 0 выкл, 1 мягко, 2 сочно, 3 космос
     shake: true,
-    bomb: true,
+    bomb: true,            // особые соты вкл/выкл
+    special: 'bomb',       // bomb | bolt | both
     bombSource: 'combo',   // combo | charge | random
     bombPower: 1,          // 1 или 2 кольца
     undo: true,
@@ -91,7 +92,8 @@
     tick: [8], pick: [12], place: [22, 16, 12], invalid: [14, 45, 14],
     clear: [14, 16, 14, 16, 14, 16, 70], bomb: [110, 20, 40, 15, 40, 15, 40, 15, 40],
     record: [40, 55, 40, 55, 40, 55, 190], over: [130, 90, 130, 90, 280], coin: [10],
-    buy: [30, 45, 30, 45, 140], streak: [40, 60, 40, 60, 110], undo: [35, 30, 35, 30, 45], combo: [28, 26, 28, 26, 28]
+    buy: [30, 45, 30, 45, 140], streak: [40, 60, 40, 60, 110], undo: [35, 30, 35, 30, 45], combo: [28, 26, 28, 26, 28],
+    thunder: [45, 25, 25, 40, 60, 20, 50, 30, 70, 20, 40, 40, 90, 30, 50, 60, 120]
   };
   HB.haptic = (type, a = 0, b = 0) => {
     const level = HB.settings.haptics;

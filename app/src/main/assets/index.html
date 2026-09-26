@@ -20,7 +20,6 @@
   </div>
   <nav class="home-grid">
     <button type="button" data-open="shop"><i class="ic ic-skin"></i>Скины</button>
-    <button type="button" data-open="editor"><i class="ic ic-hex"></i>Мои соты</button>
     <button type="button" data-open="settings"><i class="ic ic-gear"></i>Настройки</button>
   </nav>
   <button class="update-chip" id="h-update" type="button" hidden>Вышла версия <b></b> · обновить</button>
@@ -81,13 +80,17 @@
   <div class="page-body">
     <h3 class="sec">Игровой процесс</h3>
     <div class="card">
-      <label class="row"><span class="txt"><b>Бомба-сота</b><small>Сота с фитилём. Сгорает в линии и взрывает всё вокруг.</small></span><input type="checkbox" class="switch" data-set="bomb"></label>
+      <label class="row"><span class="txt"><b>Особые соты</b><small>Бомбы и молнии, которые иногда приходят вместе с фигурами.</small></span><input type="checkbox" class="switch" data-set="bomb"></label>
       <div class="sub" data-show="bomb">
-        <div class="row-col"><b>Откуда берётся бомба</b>
+        <div class="row-col"><b>Какие</b>
+          <div class="seg" data-seg="special"><button type="button" data-v="bomb">Бомба</button><button type="button" data-v="bolt">Молния</button><button type="button" data-v="both">Обе</button></div>
+          <small id="special-desc"></small>
+        </div>
+        <div class="row-col"><b>Откуда берутся</b>
           <div class="seg" data-seg="bombSource"><button type="button" data-v="combo">За комбо</button><button type="button" data-v="charge">Заряд линий</button><button type="button" data-v="random">Случайно</button></div>
           <small id="bomb-desc"></small>
         </div>
-        <div class="row-col"><b>Сила взрыва</b>
+        <div class="row-col" id="power-row"><b>Сила взрыва</b>
           <div class="seg" data-seg="bombPower"><button type="button" data-v="1">1 кольцо</button><button type="button" data-v="2">2 кольца</button></div>
         </div>
       </div>
@@ -158,5 +161,6 @@
 <script src="js/audio.js"></script>
 <script src="js/skins.js"></script>
 <script src="js/skinart.js"></script>
+<script src="js/skinart2.js"></script>
 <script src="js/game.js"></script>
 <script src="js/ui.js"></script>

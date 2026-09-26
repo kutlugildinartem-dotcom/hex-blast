@@ -153,9 +153,14 @@
 
   /* ---------- настройки ---------- */
   const BOMB_DESC = {
-    combo: 'Каждое комбо ×3 заряжает бомбу. Она придёт со следующей тройкой фигур.',
-    charge: 'Каждые 6 сожжённых линий заряжают бомбу. Прогресс виден под рекордом.',
-    random: 'Любая новая фигура может прийти с бомбой, примерно одна из двенадцати.'
+    combo: 'Каждое комбо ×3 заряжает особую соту. Она придёт со следующей тройкой фигур.',
+    charge: 'Каждые 6 сожжённых линий заряжают особую соту. Прогресс виден под рекордом.',
+    random: 'Любая новая фигура может прийти с особой сотой, примерно одна из двенадцати.'
+  };
+  const SPECIAL_DESC = {
+    bomb: 'Сота с фитилём. Сгорает в линии и взрывает соседей. Каждый следующий взрыв в цепочке даёт вдвое больше очков.',
+    bolt: 'Сота-молния. Как только ставишь её на поле, бьёт молния и сжигает всю линию через неё, даже неполную.',
+    both: 'Приходят и бомбы, и молнии. Молния может задеть бомбу, и тогда рванёт целая цепочка.'
   };
   const HAP_DESC = ['Вибрация выключена.', 'Лёгкие щелчки на каждое действие.', 'Плотные удары: ставишь, сжигаешь, взрываешь и всё чувствуешь.', 'На полную: длинные раскаты, взрывы и салюты. Держи телефон крепче.'];
   function syncSettings() {
@@ -167,6 +172,8 @@
     $$('[data-show]').forEach(el => { el.hidden = !s[el.dataset.show]; });
     $('#vol').value = Math.round(s.volume * 100);
     $('#bomb-desc').textContent = BOMB_DESC[s.bombSource];
+    $('#special-desc').textContent = SPECIAL_DESC[s.special] || SPECIAL_DESC.bomb;
+    $('#power-row').hidden = s.special === 'bolt';
     $('#hap-desc').textContent = HAP_DESC[s.haptics];
     const n = HB.profile.custom.length, on = HB.profile.custom.filter(c => c.on).length;
     $('#custom-summary').textContent = n ? `${n} ${U.plural(n, 'фигура', 'фигуры', 'фигур')}, в игре ${on}` : 'Нарисуй фигуру и добавь её в игру';
@@ -190,6 +197,7 @@
     syncSettings();
     HB.sfx.click();
     if (k === 'haptics') HB.haptic(v >= 3 ? 'bomb' : 'clear', 8, 1 | (2 << 8));
+    else if (k === 'special' && v !== 'bomb') { HB.sfx.thunder(); HB.haptic('thunder'); }
     else HB.haptic('tick');
   })));
   let volTick = 0;

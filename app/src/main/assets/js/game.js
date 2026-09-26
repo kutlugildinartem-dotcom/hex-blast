@@ -7,7 +7,8 @@
   const GREY = '#4A4680';
   const FD = '"HB Display", "Baloo 2", "Trebuchet MS", sans-serif';
   const FB = '"HB Body", "Nunito Sans", "Segoe UI", sans-serif';
-  const AMBER = '#FFC857', CORAL = '#FF6B6B', MINT = '#4ADE9C', SKY = '#4CC9F0', PINK = '#FF8FD1';
+  const AMBER = '#FFC857', CORAL = '#FF6B6B', MINT = '#4ADE9C', SKY = '#4CC9F0', PINK = '#FF8FD1', BOLTC = '#9FD8FF';
+  const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, -1], [-1, 1]];
   let H = 640, TY = 548, CY = 320, TOP = 0, BOT = 0, insetTop = 0, insetBottom = 0;
   const skin = () => HB.skins.current();
   const colorOf = ci => skin().colors[ci] || '#888888';
@@ -38,23 +39,23 @@
   ];
 
   /* ---------- состояние ---------- */
-  let tray = [null, null, null], hold = null, drag = null, ghost = null, preview = null;
+  let tray = [null, null, null], hold = null, drag = null, ghost = null, preview = null, boltPreview = null;
   let score = 0, shown = 0, bump = 0, best = HB.best(), bestAtStart = 0, recordShown = false, isRecord = false;
   let combo = 0, miss = 0, stat = { lines: 0, maxCombo: 0, clears: 0 };
-  let pendingBomb = 0, charge = 0, undoCharges = 0, snap = null, lastAward = 0, holdHint = false;
+  let pending = [], charge = 0, undoCharges = 0, snap = null, lastAward = 0, holdHint = false;
   let mode = 'idle', inputOn = false, endT = 0, time = 0;
   let freeze = 0, punch = 0, shake = 0, bgFlash = 0, bgFlashColor = '#A78BFA', whiteFlash = 0, idleT = 0, trailT = 0;
-  let parts = [], rings = [], floats = [], banners = [], splats = [], booms = [], ripple = null;
+  let parts = [], rings = [], floats = [], banners = [], splats = [], booms = [], strikes = [], hudFx = [], ripple = null, hudAcc = 0, flashTint = '255,245,230';
   const bgHex = Array.from({ length: 12 }, () => ({ x: rnd(0, W), y: rnd(0, 900), r: rnd(18, 60), s: rnd(4, 12), a: rnd(0, TAU), va: rnd(-.15, .15) }));
   const stars = Array.from({ length: 70 }, () => ({ x: rnd(0, W), y: rnd(0, 900), s: rnd(.8, 2), p: rnd(0, TAU) }));
 
   const pieceAt = i => i === 3 ? hold : tray[i];
-  function makePiece(i, delay, shape, ci, bomb = -1, vs = null) {
+  function makePiece(i, delay, shape, ci, bomb = -1, vs = null, bolt = -1) {
     const offs = shape.map(([dq, dr]) => [S * R3 * (dq + dr / 2), S * 1.5 * dr]);
     const mx = offs.reduce((a, o) => a + o[0], 0) / offs.length, my = offs.reduce((a, o) => a + o[1], 0) / offs.length;
     const xs = offs.map(o => o[0]), ys = offs.map(o => o[1]);
     return {
-      shape, ci, bomb, vs: vs || shape.map(() => rand(10)), seed: rand(997),
+      shape, ci, bomb, bolt, vs: vs || shape.map(() => rand(10)), seed: rand(997),
       offs: offs.map(o => [o[0] - mx, o[1] - my]),
       w: Math.max(...xs) - Math.min(...xs) + S * R3, h: Math.max(...ys) - Math.min(...ys) + S * 2,
       x: sx(i), y: TY + 40, sc: 0, scV: 0, rot: 0, delay, fits: true, fa: 1
@@ -79,6 +80,29 @@
     if (holdOn() && !hold && pcs.length === 1) return false;
     return true;
   }
+  /** Какая особая сота придёт следующей: зависит от выбора в настройках. */
+  function nextSpecial() {
+    const m = HB.settings.special;
+    return m === 'bolt' ? 'bolt' : m === 'both' ? (Math.random() < .5 ? 'bolt' : 'bomb') : 'bomb';
+  }
+  function earnSpecial() {
+    const t = nextSpecial();
+    pending.push(t);
+    showBanner(t === 'bolt' ? 'МОЛНИЯ ЗАРЯЖЕНА' : 'БОМБА ЗАРЯЖЕНА', t === 'bolt' ? BOLTC : CORAL);
+  }
+  /** Линия через соту-молнию, в которой больше всего занятых клеток. */
+  function strikeLineFor(cell, extra) {
+    const filled = l => l.filter(c => c.ci >= 0 || (extra && extra.has(c))).length;
+    return lines.filter(l => l.includes(cell)).reduce((a, b) => filled(b) > filled(a) ? b : a);
+  }
+  function groupOf(start) {
+    const seen = new Set(start), st = [...start];
+    while (st.length) {
+      const c = st.pop();
+      for (const [dq, dr] of DIRS) { const n = map.get(key(c.q + dq, c.r + dr)); if (n && n.ci >= 0 && !seen.has(n)) { seen.add(n); st.push(n); } }
+    }
+    return [...seen];
+  }
   function refill() {
     let ps;
     for (let n = 0; n < 10; n++) {
@@ -86,13 +110,12 @@
       if (ps.some(fitsAnywhere)) break;
     }
     if (HB.settings.bomb) {
-      if (HB.settings.bombSource === 'random') ps.forEach(p => { if (Math.random() < .08) p.bomb = rand(p.shape.length); });
-      while (pendingBomb > 0) {
-        const free = ps.filter(p => p.bomb < 0);
+      const give = (p, type) => { p[type] = rand(p.shape.length); };
+      if (HB.settings.bombSource === 'random') ps.forEach(p => { if (Math.random() < .08) give(p, nextSpecial()); });
+      while (pending.length) {
+        const free = ps.filter(p => p.bomb < 0 && p.bolt < 0);
         if (!free.length) break;
-        const p = free[rand(free.length)];
-        p.bomb = rand(p.shape.length);
-        pendingBomb--;
+        give(free[rand(free.length)], pending.shift());
       }
       if (ps.some(p => p.bomb >= 0)) setTimeout(() => HB.sfx.fuse(), 260);
     }
@@ -100,19 +123,19 @@
   }
 
   /* ---------- сохранение ---------- */
-  const serPiece = p => p ? { shape: p.shape, ci: p.ci, bomb: p.bomb, vs: p.vs } : null;
+  const serPiece = p => p ? { shape: p.shape, ci: p.ci, bomb: p.bomb, bolt: p.bolt, vs: p.vs } : null;
   function snapshot() {
     return {
       cells: cells.map(c => [c.ci, c.bomb ? 1 : 0, c.v]), tray: tray.map(serPiece), hold: serPiece(hold),
-      score, combo, miss, stat: Object.assign({}, stat), pendingBomb, charge, recordShown
+      score, combo, miss, stat: Object.assign({}, stat), pending: pending.slice(), charge, recordShown
     };
   }
   function restore(s) {
     cells.forEach((c, i) => { c.ci = s.cells[i][0]; c.bomb = !!s.cells[i][1]; c.v = s.cells[i][2] || (i * 7) % 10; c.born = time; c.pt = 9; c.fx = null; c.gt = -1; });
-    tray = s.tray.map((p, i) => p ? makePiece(i, i * .06, p.shape, p.ci, p.bomb, p.vs) : null);
-    hold = s.hold ? makePiece(3, .1, s.hold.shape, s.hold.ci, s.hold.bomb, s.hold.vs) : null;
+    tray = s.tray.map((p, i) => p ? makePiece(i, i * .06, p.shape, p.ci, p.bomb, p.vs, p.bolt == null ? -1 : p.bolt) : null);
+    hold = s.hold ? makePiece(3, .1, s.hold.shape, s.hold.ci, s.hold.bomb, s.hold.vs, s.hold.bolt == null ? -1 : s.hold.bolt) : null;
     score = s.score; combo = s.combo; miss = s.miss; stat = Object.assign({ lines: 0, maxCombo: 0, clears: 0 }, s.stat);
-    pendingBomb = s.pendingBomb || 0; charge = s.charge || 0; recordShown = !!s.recordShown;
+    pending = Array.isArray(s.pending) ? s.pending.slice() : Array(s.pendingBomb || 0).fill('bomb'); charge = s.charge || 0; recordShown = !!s.recordShown;
     drag = ghost = preview = null;
     updateFits();
   }
@@ -226,7 +249,12 @@
       preview = new Set();
       for (const l of lines) if (l.every(cl => cl.ci >= 0 || set.has(cl))) l.forEach(cl => preview.add(cl));
       if (!preview.size) preview = null;
-    } else { ghost = null; preview = null; }
+      boltPreview = null;
+      if (pc.bolt >= 0) {
+        const bc = map.get(key(aq + pc.shape[pc.bolt][0], ar + pc.shape[pc.bolt][1]));
+        boltPreview = strikeLineFor(bc, set).filter(c => c.ci >= 0 || set.has(c));
+      }
+    } else { ghost = null; preview = null; boltPreview = null; }
   }
   const nearHold = (x, y) => Math.abs(x - HX) < 46 && y > TY - 80 && y < TY + 70;
   function up() {
@@ -234,7 +262,7 @@
     if (ghost) place();
     else if (holdOn() && drag.i < 3 && (nearHold(drag.px, drag.py - drag.lift) || nearHold(drag.px, drag.py))) stash(drag.i);
     else if (drag.py - drag.lift < TY - 70) { HB.sfx.invalid(); HB.haptic('invalid'); }
-    drag = ghost = preview = null;
+    drag = ghost = preview = boltPreview = null;
   }
   function toHex(x, y) {
     const px = x - 180, py = y - CY;
@@ -275,17 +303,27 @@
     const ox = placed.reduce((a, c) => a + c.x, 0) / placed.length, oy = placed.reduce((a, c) => a + c.y, 0) / placed.length;
     placed.forEach(cl => dust(cl.x, cl.y));
     ripple = { x: ox, y: oy, t: 0 };
-    HB.skins.onPlace(placed.map(cl => [cl.x, cl.y]));
     shake = Math.max(shake, 3);
     HB.sfx.place(placed.length, (ox - 180) / 180); HB.haptic('place');
 
     const full = lines.filter(l => l.every(cl => cl.ci >= 0));
-    if (full.length) {
+    const boltCell = pc.bolt >= 0 ? placed[pc.bolt] : null;
+    const strike = boltCell ? strikeLineFor(boltCell, null) : null;
+    if (full.length || strike) {
       combo++; miss = 0;
       stat.lines += full.length; stat.maxCombo = Math.max(stat.maxCombo, combo);
       const u = new Set(), delay = new Map();
       full.forEach(l => l.forEach(cl => { u.add(cl); delay.set(cl, Math.hypot(cl.x - ox, cl.y - oy) / 520); }));
       const lineCells = u.size;
+      let strikeCells = 0, bombPts = 0;
+      if (strike) {
+        strike.forEach(cl => {
+          if (cl.ci < 0) return;
+          const d = .12 + Math.hypot(cl.x - boltCell.x, cl.y - boltCell.y) / 1300;
+          if (u.has(cl)) delay.set(cl, Math.min(delay.get(cl), d)); else { u.add(cl); delay.set(cl, d); strikeCells++; }
+        });
+        strikeFx(boltCell, strike);
+      }
       // Бомбы: взрыв задевает соседей в радиусе силы и поджигает другие бомбы цепочкой.
       const power = HB.settings.bombPower === 2 ? 2 : 1;
       const queue = [...u].filter(c => c.bomb), done = new Set();
@@ -293,8 +331,9 @@
         const b = queue.shift();
         if (done.has(b)) continue;
         done.add(b);
-        const at = delay.get(b);
-        booms.push({ x: b.x, y: b.y, t: -at, fired: false, power });
+        const at = delay.get(b), bp = 75 * Math.pow(2, done.size - 1);
+        bombPts += bp;
+        booms.push({ x: b.x, y: b.y, t: -at, fired: false, power, pts: bp });
         for (const c of cells) {
           if (c.ci < 0 || u.has(c) || cdist(b, c) > power) continue;
           u.add(c); delay.set(c, at + .12 + cdist(b, c) * .07);
@@ -307,31 +346,37 @@
         delays.push(c.fx.delay); xs.push((c.x - 180) / 180);
         c.ci = -1; c.bomb = false;
       });
-      let pts = Math.round(lineCells * 10 * full.length * (1 + (combo - 1) * .5)) + (u.size - lineCells) * 15;
+      let pts = Math.round(lineCells * 10 * full.length * (1 + (combo - 1) * .5)) + (u.size - lineCells - strikeCells) * 15 + strikeCells * 12 + bombPts;
       const bits = [];
+      if (strike) bits.push('МОЛНИЯ!');
       if (done.size) bits.push(done.size > 1 ? 'БАБАХ ×' + done.size : 'БАБАХ!');
       if (full.length > 1) bits.push(full.length + ' ' + U.plural(full.length, 'ЛИНИЯ', 'ЛИНИИ', 'ЛИНИЙ'));
       if (combo > 1) bits.push('КОМБО ×' + combo);
       if (cells.every(c => c.ci < 0)) { pts += 300; stat.clears++; bits.push('ЧИСТОЕ ПОЛЕ'); confetti(); }
       score += pts;
       floatText('+' + U.fmt(pts), ox, oy, 30 + Math.min(full.length, 4) * 5);
-      if (bits.length) showBanner(bits.join(' · '), done.size ? CORAL : comboColor(combo));
+      if (bits.length) showBanner(bits.join(' · '), done.size ? CORAL : strike ? BOLTC : comboColor(combo));
       rings.push({ x: ox, y: oy, t: 0, color: colorOf(pc.ci), big: false });
       shake = Math.max(shake, 5 + full.length * 3 + Math.min(combo, 6));
       bgFlash = 1; bgFlashColor = colorOf(pc.ci);
-      freeze = full.length >= 2 ? .075 : .035;
+      freeze = Math.max(freeze, full.length >= 2 ? .075 : .035);
       punch = Math.min(.07, .018 + .014 * full.length + .005 * combo);
       HB.sfx.clear(delays, full.length, combo, xs);
       if (combo > 1) HB.sfx.combo(combo);
       HB.haptic('clear', u.size, full.length | (combo << 8));
       if (HB.settings.bomb) {
-        if (HB.settings.bombSource === 'combo' && combo % 3 === 0) { pendingBomb++; showBanner('БОМБА ЗАРЯЖЕНА', CORAL); }
+        if (HB.settings.bombSource === 'combo' && combo % 3 === 0) earnSpecial();
         if (HB.settings.bombSource === 'charge') {
-          charge += full.length;
-          while (charge >= 6) { charge -= 6; pendingBomb++; showBanner('БОМБА ЗАРЯЖЕНА', CORAL); }
+          charge += Math.max(1, full.length);
+          while (charge >= 6) { charge -= 6; earnSpecial(); }
         }
       }
     } else if (++miss >= 3) combo = 0;
+    const remain = placed.filter(c => c.ci >= 0);
+    if (remain.length) {
+      const cx = remain.reduce((a, c) => a + c.x, 0) / remain.length, cy = remain.reduce((a, c) => a + c.y, 0) / remain.length;
+      HB.skins.onPlace(remain.map(c => [c.x, c.y]), groupOf(remain).map(c => [c.x, c.y]), { x: cx, y: cy });
+    }
     bump = 1;
     if (score > best) {
       best = score; HB.setBest(best);
@@ -344,6 +389,15 @@
       }
     }
     afterMove();
+  }
+  function strikeFx(cell, line) {
+    const pts = line.slice().sort((a, b) => a.x - b.x).map(c => [c.x, c.y]);
+    strikes.push({ x: cell.x, y: cell.y, line: pts, t: 0, sx: cell.x + rnd(-40, 40) });
+    HB.sfx.thunder(); HB.haptic('thunder');
+    flashTint = '205,230,255'; whiteFlash = 1.25;
+    shake = Math.max(shake, 18); freeze = Math.max(freeze, .12); punch = Math.max(punch, .06);
+    line.forEach(c => { for (let i = 0; i < 2; i++) parts.push({ k: 'bolt', x: c.x, y: c.y, vx: rnd(-160, 160), vy: rnd(-160, 160), g: 0, t: 0, life: rnd(.25, .45), color: BOLTC, r: rnd(8, 14) }); });
+    sparks(cell.x, cell.y, '#FFFFFF', 16, 280);
   }
   function startEnding() {
     mode = 'ending'; endT = 0;
@@ -376,9 +430,9 @@
   function newGame() {
     cells.forEach(c => { c.ci = -1; c.bomb = false; c.pt = 9; c.fx = null; c.gt = -1; });
     score = shown = 0; combo = miss = 0; stat = { lines: 0, maxCombo: 0, clears: 0 };
-    pendingBomb = 0; charge = 0; undoCharges = 0; snap = null; lastAward = 0; hold = null; holdHint = false;
+    pending = []; charge = 0; undoCharges = 0; snap = null; lastAward = 0; hold = null; holdHint = false;
     best = HB.best(); bestAtStart = best; recordShown = false; isRecord = false;
-    parts = []; rings = []; floats = []; banners = []; splats = []; booms = [];
+    parts = []; rings = []; floats = []; banners = []; splats = []; booms = []; strikes = []; hudFx = [];
     drag = ghost = preview = null; idleT = 0;
     refill(); updateFits();
     mode = 'play';
@@ -393,7 +447,8 @@
   }
   function explode(b) {
     HB.sfx.bomb(); HB.haptic('bomb');
-    shake = Math.max(shake, 16 + b.power * 4); whiteFlash = 1; freeze = Math.max(freeze, .1); punch = Math.max(punch, .08);
+    if (b.pts) floatText('+' + U.fmt(b.pts), b.x, b.y - 20, 24 + Math.min(12, Math.log2(b.pts / 75) * 4), CORAL);
+    shake = Math.max(shake, 16 + b.power * 4); whiteFlash = 1; flashTint = '255,245,230'; freeze = Math.max(freeze, .1); punch = Math.max(punch, .08);
     rings.push({ x: b.x, y: b.y, t: 0, color: CORAL, big: true });
     rings.push({ x: b.x, y: b.y, t: -.08, color: AMBER, big: true });
     sparks(b.x, b.y, AMBER, 26, 320); sparks(b.x, b.y, '#FFFFFF', 12, 260);
@@ -422,6 +477,17 @@
     for (const b of booms) { b.t += dt; if (!b.fired && b.t >= 0) { b.fired = true; explode(b); } }
     booms = booms.filter(b => !b.fired);
     if (ripple && (ripple.t += dt) > 1.4) ripple = null;
+    for (const s of strikes) s.t += dt;
+    strikes = strikes.filter(s => s.t < .6);
+    if (combo >= 2 && mode === 'play') {
+      hudAcc += dt * (10 + Math.min(combo, 8) * 5) * (1 - miss * .25);
+      while (hudAcc > 1) {
+        hudAcc--;
+        hudFx.push({ x: 180 + rnd(-52, 52), y: 70 + TOP, vx: rnd(-12, 12), vy: -rnd(40, 95), t: 0, life: rnd(.45, .9), r: rnd(2.5, 5.5) });
+      }
+    }
+    for (const f of hudFx) { f.t += dt; f.x += f.vx * dt; f.y += f.vy * dt; f.vx += rnd(-120, 120) * dt; }
+    hudFx = hudFx.filter(f => f.t < f.life);
     if (drag) {
       drag.vs += (drag.dx - drag.vs) * .35; drag.dx = 0;
       const pc = pieceAt(drag.i);
@@ -461,6 +527,8 @@
       if (p.k === 'conf') p.vx *= Math.exp(-dt * 1.5);
       if (p.k === 'leaf') { p.vx *= Math.exp(-dt * 1.4); if (p.vy > 70) p.vy = 70; }
       if (p.k === 'bubble') p.vx = Math.sin(p.t * 7 + p.r) * 18;
+      if (p.k === 'firefly') { p.vx += rnd(-400, 400) * dt; p.vy += rnd(-400, 400) * dt; p.vx *= .97; p.vy *= .97; }
+      if (p.k === 'flake') { p.vx = Math.sin(p.t * 3 + p.rot) * 25; if (p.vy > 60) p.vy = 60; }
     }
     parts = parts.filter(p => p.t < p.life && p.y < H + 60);
     for (const s of splats) s.t += dt;
@@ -527,6 +595,44 @@
     c.beginPath(); c.arc(x + R * .58, y - R * .52, R * (.12 + .08 * fl), 0, TAU); c.fillStyle = AMBER; c.fill();
     c.beginPath(); c.arc(x + R * .58, y - R * .52, R * .06, 0, TAU); c.fillStyle = '#FFFFFF'; c.fill();
   }
+  function jag(c, x0, y0, x1, y1, n, amp) {
+    const dx = x1 - x0, dy = y1 - y0, L = Math.hypot(dx, dy) || 1, nx = -dy / L, ny = dx / L;
+    c.moveTo(x0, y0);
+    for (let i = 1; i < n; i++) { const k = i / n, o = rnd(-amp, amp); c.lineTo(x0 + dx * k + nx * o, y0 + dy * k + ny * o); }
+    c.lineTo(x1, y1);
+  }
+  function drawStrikes(c) {
+    for (const s of strikes) {
+      const k = s.t / .6, a = (s.t < .08 ? 1 : Math.random() < .3 ? .35 : 1) * (1 - k);
+      c.save(); c.globalCompositeOperation = 'lighter'; c.lineCap = 'round'; c.lineJoin = 'round';
+      c.beginPath();
+      jag(c, s.sx, -30, s.x, s.y, 12, 16);
+      for (let b = 0; b < 3; b++) {
+        const t0 = rnd(.25, .8), bx = lerp(s.sx, s.x, t0), by = lerp(-30, s.y, t0);
+        jag(c, bx, by, bx + rnd(-60, 60), by + rnd(20, 70), 4, 8);
+      }
+      for (let i = 1; i < s.line.length; i++) jag(c, s.line[i - 1][0], s.line[i - 1][1], s.line[i][0], s.line[i][1], 3, 7);
+      c.strokeStyle = `rgba(110,170,255,${.2 * a})`; c.lineWidth = 18; c.stroke();
+      c.strokeStyle = `rgba(160,210,255,${.55 * a})`; c.lineWidth = 7; c.stroke();
+      c.strokeStyle = `rgba(255,255,255,${a})`; c.lineWidth = 2.4; c.stroke();
+      const gl = c.createRadialGradient(s.x, s.y, 0, s.x, s.y, 70);
+      gl.addColorStop(0, `rgba(220,240,255,${.7 * a})`); gl.addColorStop(1, 'rgba(120,180,255,0)');
+      c.fillStyle = gl; c.fillRect(s.x - 70, s.y - 70, 140, 140);
+      c.restore();
+    }
+  }
+  function drawBolt(c, x, y, R, t) {
+    c.save(); c.globalCompositeOperation = 'lighter';
+    const p = .6 + .4 * Math.sin(t * 17) * Math.sin(t * 5);
+    const g = c.createRadialGradient(x, y, 0, x, y, R * .8);
+    g.addColorStop(0, `rgba(160,210,255,${.55 * p})`); g.addColorStop(1, 'rgba(120,180,255,0)');
+    c.fillStyle = g; c.beginPath(); c.arc(x, y, R * .8, 0, TAU); c.fill();
+    c.restore();
+    const P = [[.12, -.62], [-.3, .08], [-.02, .08], [-.16, .64], [.32, -.12], [.04, -.12], [.2, -.62]];
+    c.beginPath(); P.forEach(([px, py], i) => i ? c.lineTo(x + px * R, y + py * R) : c.moveTo(x + px * R, y + py * R)); c.closePath();
+    c.fillStyle = '#FFE45C'; c.fill(); c.lineWidth = R * .07; c.strokeStyle = '#FFFFFF'; c.lineJoin = 'round'; c.stroke();
+    if (Math.sin(t * 23) > .6) { c.strokeStyle = 'rgba(200,230,255,.9)'; c.lineWidth = 1.2; c.beginPath(); jag(c, x + R * .3, y - R * .4, x + R * .6, y - R * .7, 3, 3); c.stroke(); }
+  }
   function drawBoard(c) {
     const sk = skin();
     for (const cl of cells) HB.skins.empty(c, cl.x, cl.y, S * .93, sk);
@@ -556,7 +662,16 @@
       tile(c, cl.x, cl.y, S * .93 * sc, colorOf(cl.ci), { flash, grey, v: cl.v, age: time - cl.born, board: true, rip: rk - 1, seed: cl.idx * 7 + cl.v });
       if (cl.bomb) drawBomb(c, cl.x, cl.y, S * sc, time + cl.q);
     }
-    HB.skins.drawOver(c, { cx: 180, cy: CY });
+    HB.skins.drawOver(c, { cx: 180, cy: CY, R: S * .93 });
+    if (boltPreview && drag) {
+      const fl = .5 + .5 * Math.sin(time * 30) * Math.sin(time * 11);
+      boltPreview.forEach(cl => {
+        hexPath(c, cl.x, cl.y, S * .93);
+        c.globalAlpha = .25 + .25 * fl; c.fillStyle = BOLTC; c.fill();
+        c.globalAlpha = .6; c.lineWidth = 2; c.strokeStyle = '#FFFFFF'; c.stroke();
+        c.globalAlpha = 1;
+      });
+    }
     if (preview && drag) {
       const pc = pieceAt(drag.i), s = .5 + .5 * Math.sin(time * 12);
       preview.forEach(cl => {
@@ -581,6 +696,7 @@
       o.rot = p * 1.4; o.flash = (1 - p) * .9;
       tile(c, cl.x, cl.y, S * .93 * sc, col, o);
     }
+    drawStrikes(c);
     for (const r of rings) {
       if (r.t < 0) continue;
       const life = r.big ? .7 : .55, p = r.t / life, maxR = r.big ? 230 : 150;
@@ -597,6 +713,7 @@
       const px = x + (ox * cs - oy * sn) * sc, py = y + (ox * sn + oy * cs) * sc;
       tile(c, px, py, S * .93 * sc, col, { alpha, rot, v: p.vs[k], seed: p.seed + k * 7 });
       if (k === p.bomb) { c.globalAlpha = alpha; drawBomb(c, px, py, S * sc, time); c.globalAlpha = 1; }
+      if (k === p.bolt) { c.globalAlpha = alpha; drawBolt(c, px, py, S * sc, time + k); c.globalAlpha = 1; }
     });
   }
   function drawTray(c) {
@@ -675,6 +792,19 @@
         }
         case 'tri': c.save(); c.translate(p.x, p.y); c.rotate(p.rot); c.beginPath(); c.moveTo(0, -p.r); c.lineTo(p.r * .87, p.r * .5); c.lineTo(-p.r * .87, p.r * .5); c.closePath(); c.fill(); c.restore(); break;
         case 'bubble': c.strokeStyle = p.color; c.lineWidth = 1.3; c.beginPath(); c.arc(p.x, p.y, p.r, 0, TAU); c.stroke(); break;
+        case 'puff': c.globalAlpha = .85 * (1 - k); c.beginPath(); c.arc(p.x, p.y, p.r * (1 + k * 1.6), 0, TAU); c.fill(); break;
+        case 'firefly': {
+          c.save(); c.globalCompositeOperation = 'lighter';
+          const bl = .4 + .6 * Math.abs(Math.sin(p.t * 9 + p.r * 5));
+          c.globalAlpha = (1 - k) * bl * .35; c.beginPath(); c.arc(p.x, p.y, p.r * 3, 0, TAU); c.fill();
+          c.globalAlpha = (1 - k) * bl; c.beginPath(); c.arc(p.x, p.y, p.r, 0, TAU); c.fill();
+          c.restore(); break;
+        }
+        case 'flake': {
+          c.save(); c.translate(p.x, p.y); c.rotate(p.rot); c.strokeStyle = p.color; c.lineWidth = 1.3; c.lineCap = 'round';
+          c.beginPath(); for (let i = 0; i < 3; i++) { const a = i * Math.PI / 3; c.moveTo(-Math.cos(a) * p.r, -Math.sin(a) * p.r); c.lineTo(Math.cos(a) * p.r, Math.sin(a) * p.r); } c.stroke();
+          c.restore(); break;
+        }
         default: c.save(); c.translate(p.x, p.y); c.rotate(p.rot); c.scale(1, Math.cos(p.t * 9)); c.fillRect(-p.r / 2, -p.r / 3, p.r, p.r / 1.5); c.restore();
       }
     }
@@ -717,23 +847,52 @@
       c.closePath(); c.fill(); c.lineCap = 'butt';
       c.restore();
     }
-    text(c, 'СЧЁТ', 180, 26 + TOP, `800 11px ${FB}`, '#9B95C9');
+    const fire = combo >= 2 && mode === 'play';
+    if (hudFx.length) {
+      c.save(); c.globalCompositeOperation = 'lighter';
+      for (const f of hudFx) {
+        const k = f.t / f.life;
+        c.fillStyle = `rgba(255,${Math.round(220 - 170 * k)},${Math.round(80 - 70 * k)},${(1 - k) * .75})`;
+        c.beginPath(); c.arc(f.x, f.y, f.r * (1 - k * .5), 0, TAU); c.fill();
+      }
+      c.restore();
+    }
+    text(c, fire ? 'СЧЁТ ГОРИТ' : 'СЧЁТ', 180, 26 + TOP, `800 11px ${FB}`, fire ? '#FFB347' : '#9B95C9');
     c.save();
-    c.translate(180, 58 + TOP); const s = 1 + .28 * eo(bump); c.scale(s, s);
-    text(c, U.fmt(shown), 0, 0, `800 38px ${FD}`, bump > .35 ? AMBER : '#F4F1FF');
+    const fl = fire ? 1 + .03 * Math.sin(time * 23) * Math.sin(time * 7) : 1;
+    c.translate(180, 58 + TOP); const s = (1 + .28 * eo(bump)) * fl; c.scale(s, s);
+    if (fire) {
+      const g = c.createLinearGradient(0, -20, 0, 18);
+      g.addColorStop(0, '#FFF6B0'); g.addColorStop(.45, '#FFB21E'); g.addColorStop(1, '#FF3D1A');
+      c.shadowColor = '#FF5A00'; c.shadowBlur = 12 + 6 * Math.sin(time * 17);
+      text(c, U.fmt(shown), 0, 0, `800 38px ${FD}`, g);
+      c.shadowBlur = 0;
+    } else text(c, U.fmt(shown), 0, 0, `800 38px ${FD}`, bump > .35 ? AMBER : '#F4F1FF');
     c.restore();
+    if (fire) {
+      const label = 'КОМБО ×' + combo;
+      c.font = `900 12px ${FB}`;
+      const w = c.measureText(label).width + 22, pulse = 1 + .05 * Math.sin(time * 8);
+      c.save(); c.translate(180, 90 + TOP); c.scale(pulse, pulse);
+      rr(c, -w / 2, -10, w, 20, 10); c.fillStyle = 'rgba(255,80,20,.22)'; c.fill();
+      c.lineWidth = 1.5; c.strokeStyle = 'rgba(255,150,60,.8)'; c.stroke();
+      text(c, label, 0, 1, `900 12px ${FB}`, '#FFD07A');
+      c.restore();
+    }
     text(c, 'ЛУЧШИЙ', 340, 30 + TOP, `800 10px ${FB}`, '#6F69A0', 'right');
     text(c, U.fmt(best), 340, 51 + TOP, `800 19px ${FD}`, '#A39DD0', 'right');
     if (HB.settings.bomb && HB.settings.bombSource !== 'random') {
       const need = HB.settings.bombSource === 'combo' ? 3 : 6;
       const have = HB.settings.bombSource === 'combo' ? combo % 3 : charge;
       const bx = 340 - need * 9 - 12, by = 76 + TOP;
-      drawBomb(c, bx, by, 13, time);
+      if (HB.settings.special === 'bolt') drawBolt(c, bx, by, 13, time);
+      else if (HB.settings.special === 'both') { drawBomb(c, bx - 6, by, 11, time); drawBolt(c, bx + 5, by + 1, 11, time); }
+      else drawBomb(c, bx, by, 13, time);
       for (let i = 0; i < need; i++) {
         c.beginPath(); c.arc(bx + 16 + i * 9, by + 1, 3.2, 0, TAU);
         c.fillStyle = i < have ? CORAL : 'rgba(255,255,255,.15)'; c.fill();
       }
-      if (pendingBomb > 0) text(c, '×' + pendingBomb, bx - 12, by + 1, `800 12px ${FB}`, CORAL, 'right');
+      if (pending.length) text(c, '×' + pending.length, bx - 16, by + 1, `800 12px ${FB}`, pending[0] === 'bolt' ? BOLTC : CORAL, 'right');
     }
   }
   function drawBanner(c) {
@@ -769,7 +928,7 @@
     c.restore();
     drawHud(c);
     drawBanner(c);
-    if (whiteFlash > 0) { c.fillStyle = `rgba(255,245,230,${whiteFlash * .45})`; c.fillRect(0, 0, W, H); }
+    if (whiteFlash > 0) { c.fillStyle = `rgba(${flashTint},${Math.min(1, whiteFlash) * .5})`; c.fillRect(0, 0, W, H); }
   }
 
   /* ---------- запуск ---------- */

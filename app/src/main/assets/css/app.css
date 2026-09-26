@@ -47,7 +47,7 @@ h1, h2, h3 { font-family: var(--fd); margin: 0; line-height: 1.05; }
 .modal { background: rgba(10, 8, 28, .72); align-items: center; justify-content: center; }
 .modal.entering .modal-card { animation: cardIn .45s cubic-bezier(.2, 1.5, .4, 1) both; }
 @keyframes cardIn { from { transform: translateY(30px) scale(.85); } to { transform: none; } }
-.page { background: linear-gradient(#1B1742, #0F0D26); overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.page { background: linear-gradient(#1B1742, #0F0D26); overflow-y: auto; -webkit-overflow-scrolling: touch; padding-top: 0; }
 
 .modal-card {
   width: min(100%, 360px); background: var(--panel); border: 1.5px solid var(--line); border-radius: 30px;
@@ -117,7 +117,7 @@ h1, h2, h3 { font-family: var(--fd); margin: 0; line-height: 1.05; }
 .home-actions { width: min(100%, 320px); display: flex; flex-direction: column; gap: 6px; }
 .home-actions .btn-play { font-size: 32px; padding: 18px 20px 14px; animation: breathe 2.4s ease-in-out infinite; }
 @keyframes breathe { 50% { transform: scale(1.035); } }
-.home-grid { width: min(100%, 360px); display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.home-grid { width: min(100%, 300px); display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
 .home-grid button {
   display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 14px 6px 12px;
   background: var(--panel); border: 1.5px solid var(--line); border-radius: 20px; font-weight: 800; font-size: 14px;
@@ -165,7 +165,13 @@ h1, h2, h3 { font-family: var(--fd); margin: 0; line-height: 1.05; }
 .progress i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--sky), var(--mint)); transition: width .2s; }
 
 /* ---------- страницы ---------- */
-.page-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; flex: none; }
+.page-head {
+  display: flex; align-items: center; gap: 12px; flex: none;
+  position: sticky; top: 0; z-index: 5;
+  margin: 0 -18px 14px; padding: calc(var(--inset-top) + 14px) 18px 12px;
+  background: rgba(27, 23, 66, .92); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 10px 20px -14px rgba(0, 0, 0, .8);
+}
 .page-head h2 { font-size: 32px; font-weight: 800; flex: 1; }
 .back {
   width: 44px; height: 44px; border-radius: 14px; background: var(--panel-2); font-size: 30px; line-height: 1; font-weight: 800;

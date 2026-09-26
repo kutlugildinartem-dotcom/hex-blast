@@ -7,7 +7,7 @@
 (() => {
   'use strict';
   const HB = window.HB;
-  let ac = null, master = null, verb = null, noise = null;
+  let ac = null, master = null, verb = null, noise = null, brown = null;
 
   function init() {
     if (ac) return ac;
@@ -30,6 +30,12 @@
     const wet = ac.createGain(); wet.gain.value = .28;
     verb.connect(conv); conv.connect(wet); wet.connect(master);
 
+    // Коричневый шум: глубокий раскатистый рокот для грома.
+    brown = ac.createBuffer(2, ac.sampleRate * 5, ac.sampleRate);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = brown.getChannelData(ch); let last = 0;
+      for (let i = 0; i < d.length; i++) { last = (last + .02 * (Math.random() * 2 - 1)) / 1.02; d[i] = last * 3.5; }
+    }
     noise = ac.createBuffer(1, ac.sampleRate, ac.sampleRate);
     const nd = noise.getChannelData(0);
     for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
@@ -176,6 +182,29 @@
       thud(t, { vol: .9, from: 110, to: 28, dur: .7 });
       for (let i = 0; i < 6; i++) noiseHit(t + .08 + Math.random() * .4, { vol: .12, dur: .05, freq: 3000 + Math.random() * 4000, type: 'highpass', pan: Math.random() * 1.6 - .8 });
       bell(mtof(48), t + .02, { vol: .08, dur: 1.6, ratio: 1.41, index: 4 });
+    },
+    /** Удар молнии: треск разряда, хлёсткий раскол и долгий раскатистый гром. */
+    thunder() {
+      if (!ready()) return; const t = now();
+      for (let i = 0; i < 18; i++) noiseHit(t + Math.random() * .2, { vol: .2 + Math.random() * .3, dur: .01 + Math.random() * .025, freq: 2500 + Math.random() * 6000, type: 'highpass', pan: Math.random() * 1.6 - .8, rev: .35, attack: .001 });
+      noiseHit(t + .05, { vol: 1, dur: .4, freq: 9000, to: 350, type: 'lowpass', q: .5, rev: .9, attack: .002 });
+      noiseHit(t + .07, { vol: .5, dur: .25, freq: 1800, to: 600, type: 'bandpass', q: 1.2, rev: .6, attack: .002 });
+      const s = ac.createBufferSource(); s.buffer = brown;
+      const f = ac.createBiquadFilter(); f.type = 'lowpass'; f.Q.value = .7;
+      f.frequency.setValueAtTime(1100, t + .05); f.frequency.exponentialRampToValueAtTime(70, t + 4);
+      const g = ac.createGain();
+      g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(1.6, t + .09);
+      let tt = t + .09, lvl = 1.6;
+      while (tt < t + 3.6) {
+        tt += .1 + Math.random() * .28;
+        lvl *= .74 + Math.random() * .3;
+        g.gain.exponentialRampToValueAtTime(Math.max(.0003, lvl * (.45 + Math.random() * .75)), tt);
+      }
+      g.gain.exponentialRampToValueAtTime(.0001, t + 4.3);
+      s.connect(f); f.connect(g); out(g, 0, 1);
+      s.start(t); s.stop(t + 4.4);
+      thud(t + .05, { vol: 1, from: 95, to: 24, dur: 1.4 });
+      thud(t + .9 + Math.random() * .4, { vol: .5, from: 60, to: 22, dur: 1.2 });
     },
     fuse() {
       if (!ready()) return; const t = now();

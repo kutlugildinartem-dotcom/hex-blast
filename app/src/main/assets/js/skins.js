@@ -23,12 +23,18 @@
     L('sakura', 'Сакура', 140, 'bubble', ['#FFB7C5', '#FF8FAB', '#FB6F92', '#FFE5EC', '#F4ACB7', '#E5989B'], ['#3A1E2E', '#1F0F18'], '#4A2A3C'),
     L('jelly', 'Мармелад', 150, 'bubble', ['#FF1F4B', '#FFC400', '#19E55C', '#1E9BFF', '#B530FF', '#FF7A00'], ['#221A3D', '#120E22'], '#2F2652'),
     L('lava', 'Магма', 170, 'gem', ['#FF3D00', '#FF9100', '#FFC400', '#FF1A00', '#FF6D00', '#FFAB40'], ['#2A0A06', '#140402'], '#1E0E0A'),
-    L('ice', 'Лёд', 170, 'glass', ['#E0F7FF', '#A5E9FF', '#7FD8FF', '#C7F0FF', '#58C4F6', '#BDEBFF'], ['#132F4C', '#0A1A2E'], '#1D4166'),
+    L('ice', 'Стекло', 170, 'glass', ['#FF7AA8', '#7AA2FF', '#5EF0D2', '#FFD36B', '#C38BFF', '#FF9F6B'], ['#141A3A', '#0B0F24'], '#1D2447'),
     L('sunset', 'Закат', 180, 'gloss', ['#FF4D6D', '#D6275F', '#8E1F5C', '#FF6A5C', '#B0245E', '#E8385F'], ['#2D1B3D', '#170D22'], '#2A1438'),
     L('toxic', 'Токсик', 190, 'neonlite', ['#B6FF00', '#39FF14', '#00FF9C', '#E4FF1A', '#7CFF00', '#00FFCC'], ['#0B1A0B', '#040A04'], '#152915'),
     L('gems', 'Самоцветы', 220, 'gem', ['#E0115F', '#FFC300', '#50C878', '#1560D8', '#9966CC', '#FF7F50'], ['#1A1433', '#0C0A1C'], '#2A2250'),
     L('space', 'Космос', 240, 'neonlite', ['#A78BFA', '#F0ABFC', '#67E8F9', '#FDE68A', '#818CF8', '#F472B6'], ['#0B0820', '#000000'], '#16123A', { stars: true }),
     L('gold', 'Золото', 280, 'metal', ['#FFD700', '#FFC125', '#E6B800', '#FFDF5F', '#D4AF37', '#F9E076'], ['#231C0A', '#110D03'], '#342A10'),
+    L('clouds', 'Облака', 200, 'art', ['#7EC8FF', '#9FB6FF', '#86E0EE', '#FFB8CF', '#FFD38F', '#B8A8FF'], ['#2F7BE0', '#BFE3FF'], '#A9CDF0'),
+    L('fireflies', 'Светлячки', 240, 'art', ['#2E6B4F', '#3F7F5A', '#27594A', '#4A8A5F', '#35705A', '#2B6258'], ['#0B1426', '#0E2A22'], '#10231C'),
+    L('vitrage', 'Витраж', 280, 'art', ['#D7263D', '#1B98E0', '#F4D35E', '#2EC4B6', '#8E44AD', '#F46036'], ['#1A1512', '#0D0A08'], '#1E1814'),
+    L('aurora', 'Северное сияние', 300, 'art', ['#5CFFB0', '#48D6FF', '#9B7BFF', '#FF7BD5', '#7FFFE0', '#6AA8FF'], ['#040B1E', '#0A1E33'], '#0B1830'),
+    L('cyber', 'Киберпанк', 320, 'art', ['#FF2A6D', '#05D9E8', '#D1F7FF', '#FF6C11', '#B967FF', '#01FFC3'], ['#0A0014', '#1A0030'], '#140828'),
+    L('flame', 'Пламя', 350, 'art', ['#FF4E1A', '#FF8A00', '#FFB300', '#FF2D2D', '#FF6A00', '#FFC940'], ['#120604', '#2A0A04'], '#1A0C08'),
     L('rainbow', 'Радуга', 400, 'rainbow', ['#FF6B6B', '#FFC857', '#4ADE9C', '#4CC9F0', '#A78BFA', '#FF8FD1'], ['#1E1B3A', '#0E0C1F'], '#2A2656')
   ];
   const tier = p => p === 0 ? 'Базовый' : p < 120 ? 'Обычный' : p < 200 ? 'Редкий' : p < 300 ? 'Эпический' : 'Легендарный';
@@ -108,13 +114,16 @@
     c.drawImage(cv, -s / 2, -s / 2, s, s);
   }
 
-  /* ---------- волны (для Океана) ---------- */
+  /* ---------- волны (для Океана): одно кольцо, только по связанным сотам ---------- */
   const waves = [];
+  const WAVE_SPEED = 120;
+  const pkey = (x, y) => Math.round(x) + ',' + Math.round(y);
   function waveAt(x, y) {
     let h = 0;
     for (const w of waves) {
-      const front = w.a * 150, bd = front - Math.hypot(x - w.x, y - w.y);
-      if (bd > 0 && bd < 84) h += Math.sin(bd / 14 * Math.PI) * Math.exp(-w.a * 1.4) * (1 - bd / 84) * w.s;
+      if (!w.keys.has(pkey(x, y))) continue;
+      const bd = w.a * WAVE_SPEED - Math.hypot(x - w.x, y - w.y);
+      h += Math.exp(-(bd / 13) * (bd / 13)) * Math.exp(-w.a * 1.1) * w.s;
     }
     return clamp(h, -1.6, 1.6);
   }
@@ -207,7 +216,7 @@
   }
   function empty(c, x, y, R, skin) {
     const art = HB.skins.art[skin.id];
-    if (art && art.empty) { c.save(); c.translate(x, y); art.empty(c, R, skin); c.restore(); return; }
+    if (art && art.empty) { c.save(); c.translate(x, y); art.empty(c, R, skin, x, y); c.restore(); return; }
     hexPath(c, x, y, R); c.fillStyle = skin.empty; c.fill();
   }
 
@@ -237,15 +246,20 @@
     tick(dt) {
       time += dt;
       for (const w of waves) w.a += dt;
-      while (waves.length && waves[0].a > 2.6) waves.shift();
+      for (let i = waves.length - 1; i >= 0; i--) if (waves[i].a * WAVE_SPEED > waves[i].reach + 30 || waves[i].a > 3) waves.splice(i, 1);
       const art = HB.skins.art[HB.skins.current().id];
       if (art && art.tick) art.tick(dt);
     },
     /** Хуки для игры: фон, слой поверх поля, постановка и разрушение соты. */
     drawBg(c, w, h, info) { const a = HB.skins.art[HB.skins.current().id]; return !!(a && a.bg && a.bg(c, w, h, info)); },
     drawOver(c, info) { const a = HB.skins.art[HB.skins.current().id]; if (a && a.over) a.over(c, info); },
-    onPlace(points) { const a = HB.skins.art[HB.skins.current().id]; if (a && a.place) a.place(points); },
+    onPlace(points, group, center) { const a = HB.skins.art[HB.skins.current().id]; if (a && a.place) a.place(points, group, center); },
     breakFx(api, x, y, color, v) { const a = HB.skins.art[HB.skins.current().id]; return !!(a && a.breakFx && a.breakFx(api, x, y, color, v)); },
-    addWave(x, y, s = 1) { waves.push({ x, y, a: 0, s }); if (waves.length > 16) waves.shift(); }
+    addWave(x, y, s, cells) {
+      const reach = Math.max(0, ...cells.map(([cx, cy]) => Math.hypot(cx - x, cy - y)));
+      waves.push({ x, y, a: 0, s, cells, reach, keys: new Set(cells.map(([cx, cy]) => pkey(cx, cy))) });
+      if (waves.length > 6) waves.shift();
+    },
+    WAVE_SPEED
   };
 })();

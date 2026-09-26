@@ -61,6 +61,15 @@ final class Haptics {
                 for (int i = 0; i < 12; i++) p.on(26, 255 - i * 17).off(12);
                 if (cosmos) p.on(200, 150).off(30).on(160, 90);
                 break;
+            case "thunder": {
+                // Разряд: резкий удар, потом долгий неровный раскат грома.
+                java.util.Random r = new java.util.Random();
+                p.on(45, 255).off(25).on(25, 210).off(40);
+                int amp = 255;
+                for (int i = 0; i < 18; i++) { p.on(30 + r.nextInt(40), Math.max(30, amp - r.nextInt(70))).off(10 + r.nextInt(30)); amp -= 11; }
+                if (cosmos) p.on(300, 130).off(40).on(260, 80);
+                break;
+            }
             case "record":
                 for (int i = 0; i < 3; i++) p.on(40, 255).off(55);
                 p.on(190, 255);

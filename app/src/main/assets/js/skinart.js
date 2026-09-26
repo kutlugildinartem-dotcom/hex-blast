@@ -383,29 +383,28 @@
       c.restore();
       gloss(c, R, .4);
     },
-    place(points) { points.forEach(([x, y]) => K.addWave(x, y, 1)); },
+    place(points, group, center) { if (group && group.length) K.addWave(center.x, center.y, 1, group); },
     over(c, info) {
-      if (!K.waves.length) return;
-      c.save();
-      c.beginPath(); c.arc(info.cx, info.cy, 200, 0, TAU); c.clip();
       for (const w of K.waves) {
-        const front = w.a * 150, amp = Math.exp(-w.a * 1.4) * w.s;
-        for (let i = 0; i < 4; i++) {
-          const r = front - i * 20;
-          if (r < 3) continue;
-          const a = amp * (1 - i * .22);
-          c.lineWidth = 2.4; c.strokeStyle = `rgba(255,255,255,${.35 * a})`;
-          c.beginPath(); c.ellipse(w.x, w.y, r, r * .92, 0, 0, TAU); c.stroke();
-          c.lineWidth = 3.5; c.strokeStyle = `rgba(0,40,80,${.22 * a})`;
-          c.beginPath(); c.ellipse(w.x, w.y + 2, Math.max(1, r - 8), Math.max(1, (r - 8) * .92), 0, 0, TAU); c.stroke();
+        const r = w.a * K.WAVE_SPEED, amp = Math.exp(-w.a * 1.1) * w.s;
+        if (r < 2 || amp < .04) continue;
+        c.save();
+        c.beginPath();
+        for (const [x, y] of w.cells) {
+          for (let i = 0; i < 6; i++) { const [vx, vy] = vert(i, info.R); i ? c.lineTo(x + vx, y + vy) : c.moveTo(x + vx, y + vy); }
+          c.closePath();
         }
+        c.clip();
+        c.lineWidth = 9; c.strokeStyle = `rgba(200,245,255,${.16 * amp})`;
+        c.beginPath(); c.arc(w.x, w.y, r, 0, TAU); c.stroke();
+        c.lineWidth = 2.6; c.strokeStyle = `rgba(255,255,255,${.85 * amp})`;
+        c.beginPath(); c.arc(w.x, w.y, r, 0, TAU); c.stroke();
+        c.restore();
       }
-      c.restore();
     },
     breakFx(api, x, y, color) {
       for (let i = 0; i < 7; i++) api.push({ k: 'drop', x, y, vx: rnd(-120, 120), vy: rnd(-320, -140), g: 900, t: 0, life: rnd(.6, 1), color: i % 2 ? '#E0F7FF' : color, r: rnd(2.5, 4.5) });
       for (let i = 0; i < 3; i++) api.push({ k: 'bubble', x: x + rnd(-8, 8), y, vx: rnd(-15, 15), vy: rnd(-70, -30), g: -30, t: 0, life: rnd(.9, 1.4), color: 'rgba(255,255,255,.7)', r: rnd(2.5, 5) });
-      K.addWave(x, y, .5);
       return true;
     }
   };
@@ -538,7 +537,40 @@
   };
 
   /* ================= ЗАКАТ ================= */
-  const SUN = [[0, '#1A0B2E'], [.3, '#3A1452'], [.58, '#7E1D5C'], [.82, '#C92A5E'], [1, '#FF4D6D']];
+  const SUN = [[0, '#5B3491'], [.3, '#8A3FA3'], [.58, '#C8468A'], [.82, '#F25A7E'], [1, '#FF8A7E']];
+  /** Солнце у горизонта: тёплая корона, сдержанные протуберанцы, диск с потемнением к краю и море с дорожкой. */
+  function realSun(c, x, y, r, t) {
+    const cg = c.createRadialGradient(x, y, r * .8, x, y, r * 3.4);
+    cg.addColorStop(0, 'rgba(255,196,120,.6)'); cg.addColorStop(.35, 'rgba(255,120,90,.22)'); cg.addColorStop(1, 'rgba(255,80,110,0)');
+    c.fillStyle = cg; c.fillRect(x - r * 3.4, y - r * 3.4, r * 6.8, r * 6.8);
+    c.save(); c.globalCompositeOperation = 'lighter';
+    for (let layer = 0; layer < 2; layer++) {
+      c.beginPath();
+      for (let i = 0; i <= 90; i++) {
+        const a = i / 90 * TAU;
+        const n = .05 * Math.sin(a * 7 + t * 1.1 + layer) + .035 * Math.sin(a * 13 - t * 1.9) + .025 * Math.sin(a * 29 + t * 3.1 + layer * 2);
+        const rr = r * (1.03 + layer * .03 + Math.max(0, n) * (1.4 - layer * .5));
+        const px = x + Math.cos(a) * rr, py = y + Math.sin(a) * rr;
+        i ? c.lineTo(px, py) : c.moveTo(px, py);
+      }
+      c.closePath();
+      c.fillStyle = layer ? 'rgba(255,110,60,.28)' : 'rgba(255,170,80,.45)'; c.fill();
+    }
+    c.restore();
+    const dg = c.createRadialGradient(x - r * .12, y - r * .15, r * .05, x, y, r);
+    dg.addColorStop(0, '#FFFCEB'); dg.addColorStop(.45, '#FFE59A'); dg.addColorStop(.82, '#FFB257'); dg.addColorStop(1, '#FF8740');
+    c.fillStyle = dg; c.beginPath(); c.arc(x, y, r, 0, TAU); c.fill();
+    const sea = y + r * .35;
+    const sgr = c.createLinearGradient(0, sea, 0, sea + r * 2);
+    sgr.addColorStop(0, '#7A2455'); sgr.addColorStop(1, '#2A0F33');
+    c.fillStyle = sgr; c.fillRect(0, sea, x * 2, r * 3);
+    c.fillStyle = 'rgba(255,200,150,.35)'; c.fillRect(0, sea, x * 2, 1.5);
+    for (let i = 0; i < 9; i++) {
+      const yy = sea + 4 + i * 5, ww = r * (1.1 - i * .09) * (1 + .15 * Math.sin(t * 2 + i * 1.7));
+      c.fillStyle = `rgba(255,${200 - i * 8},${140 - i * 6},${.55 - i * .05})`;
+      c.fillRect(x - ww / 2 + Math.sin(t * 1.3 + i) * 4, yy, ww, 2);
+    }
+  }
   const sunK = o => o.sk != null ? o.sk : clamp((o.wy - K.layout.top) / (K.layout.bottom - K.layout.top));
   A.sunset = {
     tile(c, R, color, o) {
@@ -553,7 +585,8 @@
       if (v === 3 && k < .5) { const tw = .5 + .5 * Math.sin(t * 2.3 + o.seed * 3); c.fillStyle = `rgba(255,240,220,${.4 + .5 * tw})`; star4(c, R * .15, -R * .25, R * (.08 + .07 * tw)); c.fill(); c.beginPath(); c.arc(-R * .3, R * .2, R * .03, 0, TAU); c.fill(); }
       if (v === 4) { c.strokeStyle = `rgba(255,210,170,${.12 + .3 * k})`; c.lineWidth = R * .05; c.beginPath(); c.moveTo(-R * .45, R * .45); c.lineTo(R * .45, R * .45); c.moveTo(-R * .25, R * .6); c.lineTo(R * .25, R * .6); c.stroke(); }
       c.restore();
-      gloss(c, R, .35);
+      gloss(c, R, .45);
+      hexPath(c, 0, 0, R * .96); c.lineWidth = R * .06; c.strokeStyle = 'rgba(255,225,235,.55)'; c.stroke();
     },
     bg(c, w, h, info) {
       const g = c.createLinearGradient(0, 0, 0, h);
@@ -563,7 +596,7 @@
       const sg = c.createRadialGradient(w / 2, h + 10, 10, w / 2, h + 10, h * .6);
       sg.addColorStop(0, 'rgba(255,200,130,.75)'); sg.addColorStop(.3, 'rgba(255,120,90,.35)'); sg.addColorStop(1, 'rgba(255,80,100,0)');
       c.fillStyle = sg; c.fillRect(0, 0, w, h);
-      c.fillStyle = 'rgba(255,190,120,.85)'; c.beginPath(); c.arc(w / 2, h + 18, w * .2, 0, TAU); c.fill();
+      realSun(c, w / 2, info.preview ? h * .9 : h * .87, w * .15, t);
       if (!info.preview) {
         for (let i = 0; i < 26; i++) { const a = .25 + .35 * Math.sin(t * 1.5 + i * 2.1); c.fillStyle = `rgba(255,255,255,${a * (1 - i / 40)})`; c.fillRect((i * 137) % w, (i * 71) % (h * .35), 1.6, 1.6); }
         c.strokeStyle = 'rgba(255,210,170,.25)'; c.lineWidth = 2;
@@ -782,6 +815,73 @@
     breakFx(api, x, y, color) {
       for (let i = 0; i < 8; i++) api.push({ k: 'star4', x, y, vx: rnd(-130, 130), vy: rnd(-130, 130), g: 0, t: 0, life: rnd(.6, 1.1), color: i % 2 ? '#FFFFFF' : color, r: rnd(3, 6) });
       for (let i = 0; i < 10; i++) api.push({ k: 'ember', x, y, vx: rnd(-90, 90), vy: rnd(-90, 90), g: 0, t: 0, life: rnd(.5, 1), color: mix(color, 'w', .4), r: rnd(1, 2) });
+      return true;
+    }
+  };
+
+  /* ================= СТЕКЛО ================= */
+  // Фон — яркие плывущие пятна. Каждая сота показывает размытую копию фона под собой,
+  // как матовое стекло в iOS: фон ужимается в 8 раз и растягивается обратно.
+  const glass = { big: null, small: null, w: 0, h: 0 };
+  const GLASS_BLOBS = ['255,110,160', '100,140,255', '70,230,200', '255,200,90', '190,120,255'];
+  function glassPaint(c, w, h, t) {
+    const g = c.createLinearGradient(0, 0, 0, h); g.addColorStop(0, '#1A1F48'); g.addColorStop(1, '#0B0F24');
+    c.fillStyle = g; c.fillRect(0, 0, w, h);
+    GLASS_BLOBS.forEach((col, i) => {
+      const x = w * (.5 + .42 * Math.sin(t * .13 + i * 1.7)), y = h * (.45 + .38 * Math.cos(t * .1 + i * 2.3)), r = w * (.42 + .08 * Math.sin(t * .2 + i));
+      const rg = c.createRadialGradient(x, y, 0, x, y, r);
+      rg.addColorStop(0, `rgba(${col},.85)`); rg.addColorStop(1, `rgba(${col},0)`);
+      c.fillStyle = rg; c.fillRect(0, 0, w, h);
+    });
+  }
+  function glassPane(c, R, wx, wy, alpha) {
+    if (!glass.small) return false;
+    c.save(); c.globalAlpha *= alpha;
+    c.drawImage(glass.small, -wx, -wy, glass.w, glass.h);
+    c.restore();
+    return true;
+  }
+  A.ice = {
+    empty(c, R, skin, x, y) {
+      c.save(); hexPath(c, 0, 0, R * .93); c.clip();
+      glassPane(c, R, x, y, .55);
+      c.fillStyle = 'rgba(255,255,255,.06)'; c.fillRect(-R, -R, 2 * R, 2 * R);
+      c.restore();
+      hexPath(c, 0, 0, R * .93); c.lineWidth = 1; c.strokeStyle = 'rgba(255,255,255,.14)'; c.stroke();
+    },
+    tile(c, R, color, o) {
+      c.save(); hexPath(c, 0, 0, R); c.clip();
+      if (!glassPane(c, R, o.wx, o.wy, 1)) { c.fillStyle = color; c.globalAlpha *= .5; c.fillRect(-R, -R, 2 * R, 2 * R); c.globalAlpha /= .5; }
+      c.fillStyle = 'rgba(255,255,255,.14)'; c.fillRect(-R, -R, 2 * R, 2 * R);
+      c.fillStyle = color; c.globalAlpha *= .34; c.fillRect(-R, -R, 2 * R, 2 * R); c.globalAlpha /= .34;
+      const hg = c.createLinearGradient(0, -R, 0, R);
+      hg.addColorStop(0, 'rgba(255,255,255,.5)'); hg.addColorStop(.45, 'rgba(255,255,255,.06)'); hg.addColorStop(1, 'rgba(0,0,30,.12)');
+      c.fillStyle = hg; c.fillRect(-R, -R, 2 * R, 2 * R);
+      c.fillStyle = 'rgba(255,255,255,.55)'; c.beginPath(); c.ellipse(-R * .28, -R * .55, R * .34, R * .1, -.35, 0, TAU); c.fill();
+      c.restore();
+      hexPath(c, 0, 0, R * .965); c.lineJoin = 'round';
+      c.lineWidth = R * .07; c.strokeStyle = 'rgba(255,255,255,.7)'; c.stroke();
+      c.lineWidth = R * .025; c.strokeStyle = mix(color, 'w', .5); c.stroke();
+    },
+    bg(c, w, h, info) {
+      if (info.preview) { glassPaint(c, w, h, 0); return true; }
+      if (!glass.big || glass.w !== w || glass.h !== h) {
+        glass.big = document.createElement('canvas'); glass.big.width = w; glass.big.height = h;
+        glass.small = document.createElement('canvas'); glass.small.width = Math.ceil(w / 8); glass.small.height = Math.ceil(h / 8);
+        glass.w = w; glass.h = h;
+      }
+      glassPaint(glass.big.getContext('2d'), w, h, K.time());
+      const sg = glass.small.getContext('2d');
+      sg.imageSmoothingEnabled = true; sg.imageSmoothingQuality = 'high';
+      sg.clearRect(0, 0, glass.small.width, glass.small.height);
+      sg.drawImage(glass.big, 0, 0, glass.small.width, glass.small.height);
+      c.drawImage(glass.big, 0, 0);
+      return true;
+    },
+    breakFx(api, x, y, color) {
+      for (let i = 0; i < 8; i++) api.push({ k: 'glass', x, y, vx: rnd(-200, 200), vy: rnd(-280, -40), g: 800, t: 0, life: rnd(.6, 1), color: 'rgba(255,255,255,.9)', r: rnd(3, 8), rot: rnd(0, TAU), vr: rnd(-14, 14) });
+      for (let i = 0; i < 5; i++) api.push({ k: 'tri', x, y, vx: rnd(-160, 160), vy: rnd(-240, -60), g: 750, t: 0, life: rnd(.6, .9), color: mix(color, 'w', .35), r: rnd(4, 7), rot: rnd(0, TAU), vr: rnd(-12, 12) });
+      for (let i = 0; i < 4; i++) api.push({ k: 'star4', x: x + rnd(-10, 10), y: y + rnd(-10, 10), vx: rnd(-40, 40), vy: rnd(-60, 0), g: 0, t: 0, life: .6, color: '#FFFFFF', r: rnd(4, 7) });
       return true;
     }
   };
