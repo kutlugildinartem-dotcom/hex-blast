@@ -753,7 +753,7 @@
     if (!drag) return;
     const pc = pieceAt(drag.i); if (!pc) return;
     const tr = HB.fx.trails[HB.profile.trail];
-    if (tr && tr.draw && drag.hist) tr.draw(c, drag.hist, time);
+    if (tr && tr.draw && drag.hist) tr.draw(c, drag.hist, time, colorOf(pc.ci));
     const sc = Math.max(0, pc.sc), cs = Math.cos(pc.rot), sn = Math.sin(pc.rot);
     c.fillStyle = 'rgba(0,0,0,.28)';
     for (const [ox, oy] of pc.offs) { hexPath(c, pc.x + (ox * cs - oy * sn) * sc + 5, pc.y + (ox * sn + oy * cs) * sc + 12, S * sc * .93, pc.rot); c.fill(); }

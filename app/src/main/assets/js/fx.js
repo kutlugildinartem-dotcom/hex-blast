@@ -18,17 +18,27 @@
     { id: 'xylo', name: 'Ксилофон', price: 0, desc: 'Звонкие деревянные ноты и колокольчики' },
     { id: 'glass', name: 'Стеклянные колокольчики', price: 150, desc: 'Хрустальный звон с эхом, как музыкальная шкатулка' },
     { id: 'chip', name: '8-бит', price: 120, desc: 'Чиптюн из старых приставок: квадратные волны и арпеджио' },
+    { id: 'kalimba', name: 'Калимба', price: 130, desc: 'Тёплые металлические язычки и мягкий суббас' },
+    { id: 'harp', name: 'Арфа', price: 190, desc: 'Живые струны и глиссандо на каждую очистку' },
     { id: 'piano', name: 'Пианино', price: 180, desc: 'Мягкий рояль: аккорды на каждую очистку' },
-    { id: 'drums', name: 'Барабаны', price: 200, desc: 'Бочка на постановку, дробь томов и тарелка на очистку' }
+    { id: 'rhodes', name: 'Лоу-фай Родес', price: 210, desc: 'Бархатное электропиано с тремоло и джазовыми аккордами' },
+    { id: 'synth', name: 'Глубокий синт', price: 240, desc: 'Плотный пад, суббас и щипки с эхом. Космическая атмосфера' }
   ];
   const TRAILS = [
-    { id: 'sparks', name: 'Искры', price: 0, desc: 'Искорки цвета фигуры' },
+    { id: 'sparks', name: 'Искры', price: 0, desc: 'Мягкие светящиеся искорки цвета фигуры' },
+    { id: 'comet', name: 'Комета', price: 80, desc: 'Светящийся хвост, который плавно тает' },
     { id: 'stardust', name: 'Звёздная пыль', price: 90, desc: 'Мерцающие звёздочки медленно оседают' },
+    { id: 'snow', name: 'Снег', price: 90, desc: 'Снежинки кружатся и тают' },
+    { id: 'hearts', name: 'Сердечки', price: 100, desc: 'Сердечки всплывают и покачиваются' },
     { id: 'petals', name: 'Лепестки', price: 110, desc: 'Лепестки сакуры кружатся и падают' },
     { id: 'bubbles', name: 'Мыльные пузыри', price: 120, desc: 'Переливаются и лопаются' },
+    { id: 'notes', name: 'Ноты', price: 130, desc: 'Музыка тянется за фигурой' },
+    { id: 'fireflies', name: 'Светлячки', price: 140, desc: 'Тёплые огоньки разлетаются и мерцают' },
     { id: 'fire', name: 'Огонь', price: 150, desc: 'Фигура оставляет пламенный хвост' },
+    { id: 'ink', name: 'Чернила', price: 160, desc: 'Цветной дым расплывается, как акварель в воде' },
     { id: 'rainbow', name: 'Радуга', price: 190, desc: 'Светящаяся радужная лента' },
-    { id: 'electric', name: 'Электричество', price: 220, desc: 'За фигурой тянется живая молния' }
+    { id: 'aurora', name: 'Северное сияние', price: 210, desc: 'Переливающаяся лента из зелёного, бирюзового и фиолетового' },
+    { id: 'electric', name: 'Электричество', price: 220, desc: 'Живой разряд плавно извивается за фигурой' }
   ];
   const BURSTS = [
     { id: 'classic', name: 'Как у скина', price: 0, desc: 'Родной эффект выбранного скина' },
@@ -64,6 +74,9 @@
         case 'flake': p.vx = Math.sin(p.t * 3 + p.rot) * 25; if (p.vy > 60) p.vy = 60; break;
         case 'petal': p.vx = Math.sin(p.t * 3.2 + p.rot) * 38; if (p.vy > 55) p.vy = 55; break;
         case 'soap': p.vx = Math.sin(p.t * 2.4 + p.r) * 16; break;
+        case 'heart': case 'note': p.vx = Math.sin(p.t * 2.6 + p.rot) * 22; break;
+        case 'ink': p.vx *= Math.exp(-dt * 2); p.vy *= Math.exp(-dt * 2); break;
+        case 'glow': p.vx *= Math.exp(-dt * 1.5); p.vy *= Math.exp(-dt * 1.5); break;
         case 'trailspark': case 'rocket': case 'zap':
           (p.hx || (p.hx = [])).push(p.x, p.y);
           if (p.hx.length > (p.k === 'rocket' ? 18 : 10)) p.hx.splice(0, 2);
@@ -91,11 +104,19 @@
     c.beginPath(); c.moveTo(hx[0], hx[1]);
     for (let i = 2; i < hx.length; i += 2) c.lineTo(hx[i], hx[i + 1]);
   }
+  // Плавно появиться за первые 15% жизни и мягко погаснуть в последние 45%.
+  const smooth = x => x * x * (3 - 2 * x);
+  const softEnv = k => Math.min(1, k / .15) * (1 - smooth(clamp((k - .55) / .45)));
+  function heartPath(c, x, y, r) {
+    c.beginPath(); c.moveTo(x, y + r * .8);
+    c.bezierCurveTo(x - r * 1.3, y - r * .1, x - r * .6, y - r * 1.1, x, y - r * .4);
+    c.bezierCurveTo(x + r * .6, y - r * 1.1, x + r * 1.3, y - r * .1, x, y + r * .8);
+  }
   function draw(c, parts, time) {
     for (const p of parts) {
       if (p.t < 0) continue;
       const k = clamp(p.t / p.life);
-      c.globalAlpha = p.k === 'conf' ? clamp((1 - k) * 3) : p.k === 'smoke' ? .6 * (1 - k) : 1 - k;
+      c.globalAlpha = p.soft ? softEnv(k) * (p.a || 1) : p.k === 'conf' ? clamp((1 - k) * 3) : p.k === 'smoke' ? .6 * (1 - k) : 1 - k;
       c.fillStyle = p.color;
       switch (p.k) {
         case 'spark': c.beginPath(); c.arc(p.x, p.y, p.r * (1 - k * .6), 0, TAU); c.fill(); break;
@@ -129,7 +150,7 @@
         case 'glass': c.save(); c.translate(p.x, p.y); c.rotate(p.rot); c.strokeStyle = p.color; c.lineWidth = 1.6; c.beginPath(); c.moveTo(-p.r, 0); c.lineTo(p.r, p.r * .3); c.stroke(); c.restore(); break;
         case 'ember': {
           c.save(); c.globalCompositeOperation = 'lighter';
-          c.globalAlpha *= .6 + .4 * Math.sin(p.t * 30 + p.r * 9);
+          c.globalAlpha *= p.soft ? .75 + .25 * Math.sin(p.t * 7 + p.r * 9) : .6 + .4 * Math.sin(p.t * 30 + p.r * 9);
           c.beginPath(); c.arc(p.x, p.y, p.r * 2.4, 0, TAU); c.globalAlpha *= .3; c.fill(); c.globalAlpha /= .3;
           c.beginPath(); c.arc(p.x, p.y, p.r, 0, TAU); c.fill();
           c.restore(); break;
@@ -140,7 +161,41 @@
           c.fillStyle = 'rgba(255,255,255,.55)'; c.beginPath(); c.arc(p.x - p.r * .3, p.y - p.r * .35, p.r * .28, 0, TAU); c.fill();
           break;
         }
-        case 'star4': c.save(); c.globalCompositeOperation = 'lighter'; star4(c, p.x, p.y, p.r * (1 - k * .7) * (.7 + .3 * Math.sin(p.t * 20))); c.fill(); c.restore(); break;
+        case 'star4': {
+          const tw = p.soft ? .85 + .15 * Math.sin(p.t * 6 + p.r * 3) : .7 + .3 * Math.sin(p.t * 20);
+          c.save(); c.globalCompositeOperation = 'lighter'; star4(c, p.x, p.y, p.r * (p.soft ? 1 - k * .35 : 1 - k * .7) * tw); c.fill(); c.restore(); break;
+        }
+        case 'glow': {
+          c.save(); c.globalCompositeOperation = 'lighter';
+          const r = p.r * (1 - k * .3), g = c.createRadialGradient(p.x, p.y, 0, p.x, p.y, r * 3);
+          g.addColorStop(0, p.color); g.addColorStop(.25, p.color); g.addColorStop(1, 'rgba(0,0,0,0)');
+          c.fillStyle = g; c.beginPath(); c.arc(p.x, p.y, r * 3, 0, TAU); c.fill();
+          c.fillStyle = 'rgba(255,255,255,.8)'; c.beginPath(); c.arc(p.x, p.y, r * .45, 0, TAU); c.fill();
+          c.restore(); break;
+        }
+        case 'heart': {
+          const s = p.r * (p.t < .2 ? .5 + 2.5 * p.t : 1);
+          c.save(); c.translate(p.x, p.y); c.rotate(Math.sin(p.t * 3 + p.rot) * .25);
+          heartPath(c, 0, 0, s); c.fill();
+          c.fillStyle = 'rgba(255,255,255,.45)'; c.beginPath(); c.ellipse(-s * .35, -s * .3, s * .22, s * .13, -.6, 0, TAU); c.fill();
+          c.restore(); break;
+        }
+        case 'note': {
+          c.save(); c.translate(p.x, p.y); c.rotate(Math.sin(p.t * 2.5 + p.rot) * .2);
+          const s = p.r;
+          c.beginPath(); c.ellipse(0, 0, s * .6, s * .45, -.4, 0, TAU); c.fill();
+          c.fillRect(s * .42, -s * 2.2, s * .18, s * 2.2);
+          if (p.rot > 3) c.fillRect(s * .42 - s * 1.35, -s * 2.2, s * 1.53, s * .3);
+          else { c.beginPath(); c.moveTo(s * .6, -s * 2.2); c.quadraticCurveTo(s * 1.4, -s * 1.7, s * 1, -s * 1.1); c.lineTo(s * .6, -s * 1.6); c.fill(); }
+          if (p.rot > 3) { c.beginPath(); c.ellipse(-s * 1.1, s * .1, s * .6, s * .45, -.4, 0, TAU); c.fill(); c.fillRect(-s * .68, -s * 2.1, s * .18, s * 2.2); }
+          c.restore(); break;
+        }
+        case 'ink': {
+          const r = p.r * (.35 + eo(k) * 1.4), g = c.createRadialGradient(p.x, p.y, 0, p.x, p.y, r);
+          g.addColorStop(0, p.color); g.addColorStop(1, 'rgba(0,0,0,0)');
+          c.globalAlpha *= .45; c.fillStyle = g; c.beginPath(); c.arc(p.x, p.y, r, 0, TAU); c.fill();
+          break;
+        }
         case 'coin': {
           const w = Math.abs(Math.cos(p.t * 11 + p.rot));
           c.beginPath(); c.ellipse(p.x, p.y, Math.max(.5, p.r * w), p.r, 0, 0, TAU); c.fill();
@@ -153,9 +208,10 @@
         case 'puff': c.globalAlpha = .85 * (1 - k); c.beginPath(); c.arc(p.x, p.y, p.r * (1 + k * 1.6), 0, TAU); c.fill(); break;
         case 'firefly': {
           c.save(); c.globalCompositeOperation = 'lighter';
-          const bl = .4 + .6 * Math.abs(Math.sin(p.t * 9 + p.r * 5));
-          c.globalAlpha = (1 - k) * bl * .35; c.beginPath(); c.arc(p.x, p.y, p.r * 3, 0, TAU); c.fill();
-          c.globalAlpha = (1 - k) * bl; c.beginPath(); c.arc(p.x, p.y, p.r, 0, TAU); c.fill();
+          const bl = p.soft ? .55 + .45 * Math.sin(p.t * 3.5 + p.r * 5) : .4 + .6 * Math.abs(Math.sin(p.t * 9 + p.r * 5));
+          const fa = p.soft ? softEnv(k) : 1 - k;
+          c.globalAlpha = fa * bl * .35; c.beginPath(); c.arc(p.x, p.y, p.r * 3, 0, TAU); c.fill();
+          c.globalAlpha = fa * bl; c.beginPath(); c.arc(p.x, p.y, p.r, 0, TAU); c.fill();
           c.restore(); break;
         }
         case 'flake': {
@@ -268,39 +324,84 @@
   const trails = {
     sparks: {
       spawn(emit, x, y, sp, spd, dt, color, st) {
-        every(st, dt, 22 + spd * .1, () => emit({ k: 'spark', x: x + rnd(-sp, sp), y: y + rnd(-sp * .7, sp * .7), vx: rnd(-20, 20), vy: rnd(10, 40), g: 0, t: 0, life: .4, color, r: rnd(1.5, 3) }));
+        every(st, dt, 20 + spd * .08, () => emit({ k: 'glow', soft: true, x: x + rnd(-sp, sp), y: y + rnd(-sp * .7, sp * .7), vx: rnd(-18, 18), vy: rnd(8, 30), g: 0, t: 0, life: rnd(.45, .7), color, r: rnd(1.4, 2.4) }));
+      }
+    },
+    comet: {
+      ribbon: true, keep: .45,
+      spawn(emit, x, y, sp, spd, dt, color, st) {
+        every(st, dt, 8, () => emit({ k: 'star4', soft: true, x: x + rnd(-sp * .6, sp * .6), y: y + rnd(-sp * .4, sp * .4), vx: 0, vy: 12, g: 0, t: 0, life: .8, color: '#FFFFFF', r: rnd(2, 3.5) }));
+      },
+      draw(c, hist, time, color) {
+        if (hist.length < 2) return;
+        c.save(); c.globalCompositeOperation = 'lighter';
+        const n = hist.length;
+        for (let i = 0; i < n; i++) {
+          const k = (i + 1) / n, h = hist[i], r = 18 * k;
+          const g = c.createRadialGradient(h.x, h.y, 0, h.x, h.y, r);
+          g.addColorStop(0, color); g.addColorStop(1, 'rgba(0,0,0,0)');
+          c.globalAlpha = .34 * k; c.fillStyle = g; c.beginPath(); c.arc(h.x, h.y, r, 0, TAU); c.fill();
+          c.globalAlpha = .6 * k; c.fillStyle = '#FFFFFF'; c.beginPath(); c.arc(h.x, h.y, 3 * k, 0, TAU); c.fill();
+        }
+        c.restore(); c.globalAlpha = 1;
       }
     },
     stardust: {
       spawn(emit, x, y, sp, spd, dt, color, st) {
-        every(st, dt, 18 + spd * .12, () => emit({ k: 'star4', x: x + rnd(-sp, sp), y: y + rnd(-sp * .7, sp * .7), vx: rnd(-10, 10), vy: rnd(15, 45), g: 0, t: 0, life: rnd(.7, 1.2), color: pick(['#FFFFFF', '#FFF3B0', '#FFD86B', '#DDEBFF']), r: rnd(2.5, 5.5) }));
-        every(st.b || (st.b = {}), dt, 30, () => emit({ k: 'spark', x: x + rnd(-sp, sp), y: y + rnd(-sp * .6, sp * .6), vx: rnd(-8, 8), vy: rnd(20, 50), g: 0, t: 0, life: rnd(.6, 1), color: 'rgba(255,245,210,.9)', r: rnd(.8, 1.5) }));
+        every(st, dt, 14 + spd * .08, () => emit({ k: 'star4', soft: true, x: x + rnd(-sp, sp), y: y + rnd(-sp * .7, sp * .7), vx: rnd(-8, 8), vy: rnd(12, 35), g: 0, t: 0, life: rnd(.9, 1.4), color: pick(['#FFFFFF', '#FFF3B0', '#FFD86B', '#DDEBFF']), r: rnd(2.5, 5) }));
+        every(st.b || (st.b = {}), dt, 24, () => emit({ k: 'glow', soft: true, x: x + rnd(-sp, sp), y: y + rnd(-sp * .6, sp * .6), vx: rnd(-6, 6), vy: rnd(15, 40), g: 0, t: 0, life: rnd(.8, 1.2), color: 'rgba(255,240,200,.9)', r: rnd(.7, 1.2) }));
+      }
+    },
+    snow: {
+      spawn(emit, x, y, sp, spd, dt, color, st) {
+        every(st, dt, 11 + spd * .05, () => emit({ k: 'flake', soft: true, x: x + rnd(-sp, sp), y: y + rnd(-sp * .5, sp * .5), vx: 0, vy: rnd(15, 40), g: 20, t: 0, life: rnd(1.3, 2), color: 'rgba(255,255,255,.95)', r: rnd(2.5, 4.5), rot: rnd(0, TAU), vr: rnd(-1.5, 1.5) }));
+        every(st.b || (st.b = {}), dt, 14, () => emit({ k: 'glow', soft: true, x: x + rnd(-sp, sp), y: y + rnd(-sp * .5, sp * .5), vx: rnd(-6, 6), vy: rnd(20, 40), g: 0, t: 0, life: 1, color: 'rgba(210,235,255,.8)', r: rnd(.8, 1.3) }));
+      }
+    },
+    hearts: {
+      spawn(emit, x, y, sp, spd, dt, color, st) {
+        every(st, dt, 7 + spd * .04, () => emit({ k: 'heart', soft: true, x: x + rnd(-sp, sp), y: y + rnd(-sp * .4, sp * .4), vx: 0, vy: rnd(-55, -25), g: -10, t: 0, life: rnd(1.1, 1.6), color: pick(['#FF4D7A', '#FF7AA2', '#FF9EC0', '#E0306A']), r: rnd(4, 7), rot: rnd(0, TAU) }));
       }
     },
     petals: {
       spawn(emit, x, y, sp, spd, dt, color, st) {
-        every(st, dt, 9 + spd * .06, () => emit({ k: 'petal', x: x + rnd(-sp, sp), y: y + rnd(-sp * .5, sp * .5), vx: 0, vy: rnd(10, 40), g: 60, t: 0, life: rnd(1.4, 2.2), color: pick(['#FFB7C5', '#FF8FAB', '#FFD1DC', '#FFE8EE', '#F7A1B8']), r: rnd(3.5, 6), rot: rnd(0, TAU), vr: rnd(-3, 3) }));
+        every(st, dt, 9 + spd * .05, () => emit({ k: 'petal', soft: true, x: x + rnd(-sp, sp), y: y + rnd(-sp * .5, sp * .5), vx: 0, vy: rnd(10, 35), g: 50, t: 0, life: rnd(1.5, 2.2), color: pick(['#FFB7C5', '#FF8FAB', '#FFD1DC', '#FFE8EE', '#F7A1B8']), r: rnd(3.5, 6), rot: rnd(0, TAU), vr: rnd(-2.5, 2.5) }));
       }
     },
     bubbles: {
       spawn(emit, x, y, sp, spd, dt, color, st) {
-        every(st, dt, 6 + spd * .04, () => emit({ k: 'soap', x: x + rnd(-sp, sp), y: y + rnd(-sp * .5, sp * .5), vx: 0, vy: rnd(-45, -15), g: -8, t: 0, life: rnd(1.1, 2), color: '#FFFFFF', r: rnd(4, 9) }));
+        every(st, dt, 6 + spd * .035, () => emit({ k: 'soap', x: x + rnd(-sp, sp), y: y + rnd(-sp * .5, sp * .5), vx: 0, vy: rnd(-45, -15), g: -8, t: 0, life: rnd(1.2, 2), color: '#FFFFFF', r: rnd(4, 9) }));
+      }
+    },
+    notes: {
+      spawn(emit, x, y, sp, spd, dt, color, st) {
+        every(st, dt, 5 + spd * .035, () => emit({ k: 'note', soft: true, x: x + rnd(-sp, sp), y: y + rnd(-sp * .4, sp * .4), vx: 0, vy: rnd(-50, -25), g: -8, t: 0, life: rnd(1.1, 1.6), color: pick(['#FFFFFF', '#FFE45C', '#9FD8FF', color]), r: rnd(3.2, 4.6), rot: rnd(0, 6) }));
+      }
+    },
+    fireflies: {
+      spawn(emit, x, y, sp, spd, dt, color, st) {
+        every(st, dt, 7 + spd * .03, () => emit({ k: 'firefly', soft: true, x: x + rnd(-sp, sp), y: y + rnd(-sp * .5, sp * .5), vx: rnd(-40, 40), vy: rnd(-40, 10), g: 0, t: 0, life: rnd(1.4, 2.2), color: '#FFD84A', r: rnd(1.8, 2.8) }));
       }
     },
     fire: {
       spawn(emit, x, y, sp, spd, dt, color, st) {
         every(st, dt, 70 + spd * .25, () => emit({ k: 'flamep', x: x + rnd(-sp, sp), y: y + rnd(-sp * .4, sp * .6), vx: rnd(-15, 15), vy: rnd(-110, -50), g: -60, t: 0, life: rnd(.4, .7), color: '#FF8A00', r: rnd(8, 15) }));
-        every(st.b || (st.b = {}), dt, 12, () => emit({ k: 'ember', x: x + rnd(-sp, sp), y: y + rnd(-sp * .5, sp * .5), vx: rnd(-30, 30), vy: rnd(-120, -60), g: -20, t: 0, life: rnd(.6, 1), color: '#FFB347', r: rnd(1, 1.8) }));
+        every(st.b || (st.b = {}), dt, 10, () => emit({ k: 'ember', soft: true, x: x + rnd(-sp, sp), y: y + rnd(-sp * .5, sp * .5), vx: rnd(-25, 25), vy: rnd(-110, -50), g: -20, t: 0, life: rnd(.7, 1.1), color: '#FFB347', r: rnd(1, 1.7) }));
+      }
+    },
+    ink: {
+      spawn(emit, x, y, sp, spd, dt, color, st) {
+        every(st, dt, 26 + spd * .06, () => emit({ k: 'ink', soft: true, x: x + rnd(-sp * .6, sp * .6), y: y + rnd(-sp * .4, sp * .4), vx: rnd(-30, 30), vy: rnd(-10, 30), g: 0, t: 0, life: rnd(.9, 1.4), color: pick([color, HB.skins.mix(color, 'w', .3), HB.skins.mix(color, 'k', .2)]), r: rnd(10, 18) }));
       }
     },
     rainbow: {
       ribbon: true, keep: .5,
       spawn(emit, x, y, sp, spd, dt, color, st) {
-        every(st, dt, 10, () => emit({ k: 'star4', x: x + rnd(-sp, sp), y: y + rnd(-sp * .5, sp * .5), vx: 0, vy: 20, g: 0, t: 0, life: .6, color: pick(RAINBOW), r: rnd(2, 4) }));
+        every(st, dt, 8, () => emit({ k: 'star4', soft: true, x: x + rnd(-sp, sp), y: y + rnd(-sp * .5, sp * .5), vx: 0, vy: 18, g: 0, t: 0, life: .8, color: pick(RAINBOW), r: rnd(2, 3.5) }));
       },
-      draw(c, hist, time) {
+      draw(c, hist) {
         if (hist.length < 3) return;
-        c.save(); c.globalCompositeOperation = 'lighter'; c.lineCap = 'round'; c.lineJoin = 'round';
+        c.save(); c.lineCap = 'butt'; c.lineJoin = 'round';
         const n = hist.length;
         for (let band = 0; band < RAINBOW.length; band++) {
           c.strokeStyle = RAINBOW[band];
@@ -308,27 +409,54 @@
           for (let i = 1; i < n; i++) {
             const a = hist[i - 1], b = hist[i], k = i / n;
             const dx = b.x - a.x, dy = b.y - a.y, L = Math.hypot(dx, dy) || 1, nx = -dy / L, ny = dx / L;
-            c.globalAlpha = k * .8; c.lineWidth = 4.6 * k + .6;
+            c.globalAlpha = smooth(k) * .85; c.lineWidth = 4.2;
             c.beginPath(); c.moveTo(a.x + nx * off * k, a.y + ny * off * k); c.lineTo(b.x + nx * off * k, b.y + ny * off * k); c.stroke();
           }
         }
         c.restore(); c.globalAlpha = 1;
       }
     },
-    electric: {
-      ribbon: true,
+    aurora: {
+      ribbon: true, keep: .6,
       spawn(emit, x, y, sp, spd, dt, color, st) {
-        every(st, dt, 5 + spd * .03, () => emit({ k: 'bolt', x: x + rnd(-sp, sp), y: y + rnd(-sp * .5, sp * .5), vx: rnd(-160, 160), vy: rnd(-160, 160), g: 0, t: 0, life: rnd(.15, .3), color: '#9FD8FF', r: rnd(6, 11) }));
+        every(st, dt, 10, () => emit({ k: 'glow', soft: true, x: x + rnd(-sp, sp), y: y + rnd(-sp * .5, sp * .5), vx: 0, vy: rnd(-20, 5), g: 0, t: 0, life: 1, color: pick(['rgba(92,255,176,.9)', 'rgba(72,214,255,.9)', 'rgba(170,130,255,.9)']), r: rnd(1, 1.8) }));
       },
-      draw(c, hist) {
+      draw(c, hist, time) {
         if (hist.length < 3) return;
         c.save(); c.globalCompositeOperation = 'lighter'; c.lineCap = 'round'; c.lineJoin = 'round';
+        [['92,255,176', 0, 11], ['72,214,255', 1.7, 8], ['170,130,255', 3.4, 6]].forEach(([col, ph, w]) => {
+          const n = hist.length;
+          for (let i = 1; i < n; i++) {
+            const a = hist[i - 1], b = hist[i], k = i / n;
+            const dx = b.x - a.x, dy = b.y - a.y, L = Math.hypot(dx, dy) || 1, nx = -dy / L, ny = dx / L;
+            const wa = Math.sin(time * 3 + i * .45 + ph) * 7 * k, wb = Math.sin(time * 3 + (i + 1) * .45 + ph) * 7 * k;
+            c.strokeStyle = `rgba(${col},${.55 * smooth(k)})`; c.lineWidth = w * k * 1.3 + 1.5;
+            c.beginPath(); c.moveTo(a.x + nx * wa, a.y + ny * wa); c.lineTo(b.x + nx * wb, b.y + ny * wb); c.stroke();
+          }
+        });
+        c.restore();
+      }
+    },
+    electric: {
+      ribbon: true, keep: .42,
+      spawn(emit, x, y, sp, spd, dt, color, st) {
+        every(st, dt, 14, () => emit({ k: 'glow', soft: true, x: x + rnd(-sp, sp), y: y + rnd(-sp * .5, sp * .5), vx: rnd(-40, 40), vy: rnd(-40, 40), g: 0, t: 0, life: rnd(.3, .5), color: 'rgba(160,215,255,.95)', r: rnd(1, 1.8) }));
+      },
+      draw(c, hist, time) {
+        if (hist.length < 3) return;
+        c.save(); c.globalCompositeOperation = 'lighter'; c.lineCap = 'round'; c.lineJoin = 'round';
+        const n = hist.length;
         for (let pass = 0; pass < 2; pass++) {
-          c.beginPath(); c.moveTo(hist[0].x, hist[0].y);
-          for (let i = 1; i < hist.length; i++) { const k = i / hist.length; c.lineTo(hist[i].x + rnd(-7, 7) * k, hist[i].y + rnd(-7, 7) * k); }
-          c.strokeStyle = 'rgba(120,190,255,.25)'; c.lineWidth = 10; c.stroke();
-          c.strokeStyle = 'rgba(180,225,255,.7)'; c.lineWidth = 3; c.stroke();
-          c.strokeStyle = '#FFFFFF'; c.lineWidth = 1.1; c.stroke();
+          c.beginPath();
+          for (let i = 0; i < n; i++) {
+            const k = i / n, h = hist[i];
+            const o = (Math.sin(i * 1.7 + time * 19 + pass * 2) * Math.sin(i * .9 - time * 13)) * 7 * k;
+            const nx = i ? -(h.y - hist[i - 1].y) : 0, ny = i ? h.x - hist[i - 1].x : 0, L = Math.hypot(nx, ny) || 1;
+            i ? c.lineTo(h.x + nx / L * o, h.y + ny / L * o) : c.moveTo(h.x, h.y);
+          }
+          c.strokeStyle = 'rgba(110,180,255,.28)'; c.lineWidth = 14; c.stroke();
+          c.strokeStyle = 'rgba(170,220,255,.75)'; c.lineWidth = 4.5; c.stroke();
+          c.strokeStyle = '#FFFFFF'; c.lineWidth = 1.6; c.stroke();
         }
         c.restore();
       }

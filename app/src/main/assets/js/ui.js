@@ -318,12 +318,30 @@
       const kw = 22, n = 9, x0 = cx - n * kw / 2, y0 = cy - 45;
       for (let i = 0; i < n; i++) { c.fillStyle = '#F7F4EE'; c.fillRect(x0 + i * kw, y0, kw - 2, 90); c.fillStyle = 'rgba(0,0,0,.08)'; c.fillRect(x0 + i * kw, y0 + 82, kw - 2, 8); }
       [0, 1, 3, 4, 5, 7].forEach(i => { c.fillStyle = '#1C1830'; c.fillRect(x0 + i * kw + kw * .65, y0, kw * .7, 55); c.fillStyle = 'rgba(255,255,255,.2)'; c.fillRect(x0 + i * kw + kw * .7, y0, 2, 50); });
+    } else if (id === 'kalimba') {
+      c.fillStyle = '#B07A4A'; c.beginPath(); c.roundRect ? c.roundRect(cx - 70, cy - 42, 140, 92, 18) : c.rect(cx - 70, cy - 42, 140, 92); c.fill();
+      c.fillStyle = '#5A3A22'; c.beginPath(); c.arc(cx, cy + 22, 14, 0, Math.PI * 2); c.fill();
+      c.fillStyle = '#8C5E36'; c.fillRect(cx - 60, cy - 30, 120, 8);
+      [-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5].forEach(i => { const L = 60 - Math.abs(i) * 7; const g = c.createLinearGradient(0, cy - 34, 0, cy - 34 + L); g.addColorStop(0, '#FFFFFF'); g.addColorStop(1, '#A9B4C8'); c.fillStyle = g; c.fillRect(cx + i * 10 - 3, cy - 34, 6, L); });
+    } else if (id === 'harp') {
+      c.strokeStyle = '#E3B04B'; c.lineWidth = 7;
+      c.beginPath(); c.moveTo(cx - 50, cy + 50); c.lineTo(cx - 50, cy - 50); c.quadraticCurveTo(cx + 10, cy - 70, cx + 55, cy - 20); c.lineTo(cx - 50, cy + 50); c.stroke();
+      c.strokeStyle = 'rgba(255,245,220,.85)'; c.lineWidth = 1.4;
+      for (let i = 1; i <= 8; i++) { const x = cx - 50 + i * 11.5, top = cy - 50 - Math.sin(i / 9 * Math.PI) * 12 + i * 3.5; c.beginPath(); c.moveTo(x, top); c.lineTo(x, cy + 50 - i * 8.8); c.stroke(); }
+    } else if (id === 'rhodes') {
+      c.fillStyle = '#1B1B1B'; c.beginPath(); c.arc(cx, cy, 55, 0, Math.PI * 2); c.fill();
+      c.strokeStyle = 'rgba(255,255,255,.08)'; c.lineWidth = 1; for (let r = 20; r < 54; r += 4) { c.beginPath(); c.arc(cx, cy, r, 0, Math.PI * 2); c.stroke(); }
+      c.fillStyle = '#E8734A'; c.beginPath(); c.arc(cx, cy, 18, 0, Math.PI * 2); c.fill();
+      c.fillStyle = '#231E52'; c.beginPath(); c.arc(cx, cy, 3, 0, Math.PI * 2); c.fill();
+      c.fillStyle = 'rgba(255,255,255,.15)'; c.beginPath(); c.ellipse(cx - 20, cy - 25, 22, 8, -.6, 0, Math.PI * 2); c.fill();
     } else {
-      c.fillStyle = '#C0392B'; c.beginPath(); c.ellipse(cx, cy + 20, 58, 16, 0, 0, Math.PI * 2); c.fill();
-      c.fillRect(cx - 58, cy - 20, 116, 40);
-      c.fillStyle = '#E8E4F5'; c.beginPath(); c.ellipse(cx, cy - 20, 58, 16, 0, 0, Math.PI * 2); c.fill();
-      c.strokeStyle = '#F4D35E'; c.lineWidth = 3; for (let i = 0; i < 6; i++) { const x = cx - 55 + i * 22; c.beginPath(); c.moveTo(x, cy - 16); c.lineTo(x + 11, cy + 30); c.stroke(); }
-      c.strokeStyle = '#8B5A2B'; c.lineWidth = 5; c.beginPath(); c.moveTo(cx - 70, cy - 60); c.lineTo(cx - 20, cy - 25); c.moveTo(cx + 70, cy - 60); c.lineTo(cx + 25, cy - 25); c.stroke();
+      c.save(); c.globalCompositeOperation = 'lighter'; c.lineWidth = 3;
+      [['120,90,255', 0], ['80,200,255', 1.3], ['255,100,200', 2.6]].forEach(([col, ph], k) => {
+        c.strokeStyle = `rgba(${col},.85)`; c.beginPath();
+        for (let x = 0; x <= w; x += 4) { const y = cy + Math.sin(x * .05 + ph) * (26 - k * 6) * Math.sin(x / w * Math.PI); x ? c.lineTo(x, y) : c.moveTo(x, y); }
+        c.stroke();
+      });
+      c.restore();
     }
   }
 
@@ -363,7 +381,7 @@
     L.parts = HB.fx.update(L.parts, dt, h);
     previewBg(c, w, h);
     HB.fx.draw(c, L.parts, L.t);
-    if (tr.draw) tr.draw(c, L.hist, L.t);
+    if (tr.draw) tr.draw(c, L.hist, L.t, col);
     const R = 11, S3 = Math.sqrt(3);
     [-1, 0, 1].forEach((k, i) => HB.skins.tile(c, x + k * R * S3, y, R * .93, sk.colors[(i + 2) % 6], sk, { v: i * 3 }));
   }
@@ -536,6 +554,15 @@
   tap($('#h-update'), () => { HB.sfx.click(); if (upVer) open('update'); });
 
   /* ---------- старт ---------- */
+  // Барабаны убраны из игры: у купивших возвращаем мёд.
+  if ((HB.profile.ownedSounds || []).includes('drums')) {
+    HB.profile.ownedSounds = HB.profile.ownedSounds.filter(x => x !== 'drums');
+    HB.profile.honey += 200;
+    if (HB.profile.sound === 'drums') HB.profile.sound = 'xylo';
+    HB.saveProfile();
+    setTimeout(() => toast('Набор «Барабаны» убран, 200 мёда вернули'), 1200);
+  }
+  if (!HB.fx.SOUNDS.some(s => s.id === HB.profile.sound)) HB.profile.sound = 'xylo';
   open('home');
   const reward = HB.touchStreak();
   if (reward > 0) setTimeout(() => open('streak'), 450);

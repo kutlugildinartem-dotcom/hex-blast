@@ -170,25 +170,82 @@
       bell(freq * 2, t + d + .002, { vol: vol * k * .3, dur: dur * .5, pan: p, rev: .6, ratio: 5.4, index: .5 });
     });
   }
-  function kick(t, vol = .9) { thud(t, { vol, from: 150, to: 42, dur: .32 }); noiseHit(t, { vol: vol * .25, dur: .02, freq: 3000, type: 'highpass', rev: .02, attack: .001 }); }
-  function tom(freq, t, vol = .6, pan = 0) {
+  /** Калимба: металлический язычок — чистый тон, короткий звон атаки и мягкий обертон. */
+  function kalimba(freq, t, { vol = .13, pan = 0, dur = 1.5 } = {}) {
     const o = ac.createOscillator();
-    o.frequency.setValueAtTime(freq * 1.7, t); o.frequency.exponentialRampToValueAtTime(freq, t + .07);
-    const g = envGain(t, .002, vol, .38); o.connect(g); out(g, pan, .25);
-    o.start(t); o.stop(t + .45);
-    noiseHit(t, { vol: vol * .25, dur: .06, freq: 1500, type: 'bandpass', q: 1.5, rev: .15, attack: .001, pan });
+    o.frequency.setValueAtTime(freq * 1.012, t); o.frequency.exponentialRampToValueAtTime(freq, t + .03);
+    const g = envGain(t, .002, vol, dur); o.connect(g); out(g, pan, .45);
+    const o2 = ac.createOscillator(); o2.frequency.value = freq * 5.4;
+    const g2 = envGain(t, .001, vol * .3, .06); o2.connect(g2); out(g2, pan, .2);
+    const o3 = ac.createOscillator(); o3.frequency.value = freq * 2.97;
+    const g3 = envGain(t, .002, vol * .16, .4); o3.connect(g3); out(g3, pan, .35);
+    [[o, dur], [o2, .1], [o3, .45]].forEach(([x, d]) => { x.start(t); x.stop(t + d + .05); });
   }
-  function snare(t, vol = .5, pan = 0) {
-    noiseHit(t, { vol, dur: .18, freq: 2200, type: 'bandpass', q: .8, rev: .25, attack: .001, pan });
-    const o = ac.createOscillator(); o.type = 'triangle';
-    o.frequency.setValueAtTime(240, t); o.frequency.exponentialRampToValueAtTime(170, t + .08);
-    const g = envGain(t, .001, vol * .45, .12); o.connect(g); out(g, pan, .2);
-    o.start(t); o.stop(t + .15);
+  /** Арфа: физическая модель щипка струны (Карплус–Стронг). Буферы кэшируются по высоте ноты. */
+  const ksCache = new Map();
+  function ksBuffer(freq) {
+    const key = Math.round(freq * 4);
+    let b = ksCache.get(key);
+    if (b) return b;
+    const sr = ac.sampleRate, len = Math.floor(sr * 2.4), N = Math.max(2, Math.round(sr / freq));
+    b = ac.createBuffer(1, len, sr);
+    const d = b.getChannelData(0), ring = new Float32Array(N);
+    for (let i = 0; i < N; i++) ring[i] = Math.random() * 2 - 1;
+    for (let i = 1; i < N; i++) ring[i] = (ring[i] + ring[i - 1]) * .5;
+    const damp = .997 - Math.min(.01, freq / 80000);
+    let idx = 0;
+    for (let i = 0; i < len; i++) { const nx = (idx + 1) % N, v = ring[idx]; d[i] = v; ring[idx] = damp * .5 * (v + ring[nx]); idx = nx; }
+    if (ksCache.size > 80) ksCache.clear();
+    ksCache.set(key, b);
+    return b;
   }
-  const hat = (t, vol = .18, open = false, pan = 0) => noiseHit(t, { vol, dur: open ? .35 : .05, freq: 8000, type: 'highpass', rev: .1, attack: .001, pan });
-  function crash(t, vol = .35) {
-    noiseHit(t, { vol, dur: 1.8, freq: 5000, type: 'highpass', rev: .5, attack: .002 });
-    noiseHit(t, { vol: vol * .5, dur: 1.2, freq: 3200, type: 'bandpass', q: 3, rev: .5, attack: .002 });
+  function harp(freq, t, { vol = .24, pan = 0 } = {}) {
+    const s = ac.createBufferSource(); s.buffer = ksBuffer(freq);
+    const f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = Math.min(7000, freq * 7);
+    const g = ac.createGain(); g.gain.setValueAtTime(vol, t); g.gain.setValueAtTime(vol, t + 2); g.gain.linearRampToValueAtTime(0, t + 2.35);
+    s.connect(f); f.connect(g); out(g, pan, .5);
+    s.start(t); s.stop(t + 2.4);
+  }
+  /** Родес: FM-электропиано с «колокольчиком» атаки, тремоло и тёплым фильтром. */
+  function rhodes(freq, t, { vol = .09, pan = 0, dur = 1.8 } = {}) {
+    const car = ac.createOscillator(), mod = ac.createOscillator(), mg = ac.createGain();
+    car.frequency.value = freq; mod.frequency.value = freq;
+    mg.gain.setValueAtTime(freq * 1.3, t); mg.gain.exponentialRampToValueAtTime(freq * .12, t + .5);
+    mod.connect(mg); mg.connect(car.frequency);
+    const tine = ac.createOscillator(), tg = envGain(t, .001, vol * .22, .12); tine.frequency.value = freq * 14; tine.connect(tg);
+    const trem = ac.createGain(), lfo = ac.createOscillator(), lg = ac.createGain();
+    lfo.frequency.value = 4.8; lg.gain.value = .16; trem.gain.value = .84; lfo.connect(lg); lg.connect(trem.gain);
+    const f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 2600;
+    const g = envGain(t, .004, vol, dur);
+    car.connect(g); g.connect(trem); trem.connect(f); out(f, pan, .35); out(tg, pan, .1);
+    [car, mod, tine, lfo].forEach(o => { o.start(t); o.stop(t + dur + .1); });
+  }
+  /** Глубокий синт: две расстроенные пилы через резонансный фильтр, с эхом отдельными отражениями. */
+  function synthPluck(freq, t, { vol = .07, pan = 0, dur = .7, cutoff = 2600, echo = true } = {}) {
+    const f = ac.createBiquadFilter(); f.type = 'lowpass'; f.Q.value = 5;
+    f.frequency.setValueAtTime(250, t); f.frequency.exponentialRampToValueAtTime(cutoff, t + .015);
+    f.frequency.exponentialRampToValueAtTime(Math.max(300, freq * 1.5), t + dur * .8);
+    const g = envGain(t, .004, vol, dur); f.connect(g); out(g, pan, .55);
+    [-9, 9].forEach(dt => { const o = ac.createOscillator(); o.type = 'sawtooth'; o.frequency.value = freq; o.detune.value = dt; o.connect(f); o.start(t); o.stop(t + dur + .05); });
+    if (echo) {
+      synthPluck(freq, t + .24, { vol: vol * .35, pan: -pan * .8 || .4, dur, cutoff: cutoff * .6, echo: false });
+    }
+  }
+  function synthPad(freqs, t, { vol = .045, attack = .12, dur = 1.8 } = {}) {
+    const f = ac.createBiquadFilter(); f.type = 'lowpass';
+    f.frequency.setValueAtTime(500, t); f.frequency.linearRampToValueAtTime(1900, t + attack + .3); f.frequency.exponentialRampToValueAtTime(450, t + attack + dur);
+    const g = envGain(t, attack, vol, dur); f.connect(g); out(g, 0, .75);
+    freqs.forEach((fr, i) => [-12, 0, 12].forEach(dt => {
+      const o = ac.createOscillator(); o.type = 'sawtooth'; o.frequency.value = fr; o.detune.value = dt + (i % 2 ? 3 : -3);
+      o.connect(f); o.start(t); o.stop(t + attack + dur + .1);
+    }));
+  }
+  /** Суббас: глубокий синус, опционально с проседанием высоты. */
+  function sub(t, from, to, vol = .4, dur = .8) {
+    const o = ac.createOscillator();
+    o.frequency.setValueAtTime(from, t); if (to !== from) o.frequency.exponentialRampToValueAtTime(to, t + dur);
+    const g = envGain(t, .012, vol, dur); o.connect(g); out(g, 0, .05);
+    o.start(t); o.stop(t + dur + .05);
   }
 
   /* Наборы: каждый умеет сыграть ноту каскада, аккорд очистки, постановку, комбо и т. д. */
@@ -253,14 +310,59 @@
       record(t) { [60, 64, 67, 72, 76, 79, 84].forEach((m, i) => piano(mtof(m), t + i * .09, { vol: .06, dur: 2 })); [36, 43, 48].forEach(m => piano(mtof(m), t + .63, { vol: .06, dur: 3 })); },
       over(t) { [72, 67, 63, 60].forEach((m, i) => piano(mtof(m), t + i * .25, { vol: .06, dur: 1.6 })); piano(mtof(48), t + 1, { vol: .06, dur: 3 }); piano(mtof(51), t + 1, { vol: .05, dur: 3 }); }
     },
-    drums: {
-      note(m, t, pan, k) { if (k % 3 === 2) snare(t, .28, pan); else tom(70 + (m - 60) * 7, t, .45, pan); hat(t + .03, .07, false, -pan); },
-      chord(root, t, lines) { kick(t, .9); crash(t + .02, .25 + lines * .08); if (lines > 1) { kick(t + .22, .7); snare(t + .33, .45); kick(t + .44, .8); } },
-      place(n, pan, t) { kick(t, .75); hat(t + .01, .08, false, pan); },
-      combo(n, t) { const c = Math.min(4 + n * 2, 14); for (let i = 0; i < c; i++) snare(t + i * .045, .12 + i * .025, i % 2 ? .3 : -.3); crash(t + c * .045, .25); },
-      refill(t) { hat(t, .1); hat(t + .08, .1); hat(t + .16, .14, true); },
-      record(t) { for (let i = 0; i < 8; i++) tom(200 - i * 18, t + i * .06, .5, (i - 3.5) * .15); kick(t + .5, 1); crash(t + .5, .45); },
-      over(t) { [140, 110, 85, 65].forEach((f, i) => tom(f, t + i * .18, .5)); crash(t + .75, .2); }
+    kalimba: {
+      note(m, t, pan) { kalimba(mtof(m), t, { vol: .12, pan }); },
+      chord(root, t, lines) {
+        [0, 4, 7, 12, 16].forEach((st, i) => kalimba(mtof(root + st), t + i * .07, { vol: .085, pan: (i - 2) * .25 }));
+        sub(t, mtof(root - 24), mtof(root - 24), .22, 1.3);
+        if (lines > 1) [19, 24, 28].forEach((st, i) => kalimba(mtof(root + st), t + .4 + i * .08, { vol: .07, dur: 1.2 }));
+      },
+      place(n, pan, t) { thud(t, { vol: .28, from: 140, to: 60, dur: .14 }); kalimba(mtof(penta(n, 55)), t, { vol: .11, pan, dur: 1 }); },
+      combo(n, t) { for (let i = 0; i < Math.min(n + 3, 9); i++) kalimba(mtof(penta(i + n * 2, 72)), t + i * .05, { vol: .07, dur: .9, pan: (i % 2 ? .45 : -.45) }); },
+      refill(t) { [0, 2, 4].forEach((k, i) => kalimba(mtof(penta(k + 5, 72)), t + i * .07, { vol: .05, dur: .7 })); },
+      record(t) { [60, 64, 67, 72, 76, 79, 84, 88].forEach((m, i) => kalimba(mtof(m), t + i * .08, { vol: .09, dur: 1.6, pan: (i - 3.5) * .15 })); sub(t + .6, mtof(36), mtof(36), .3, 1.8); },
+      over(t) { [79, 74, 71, 67, 62].forEach((m, i) => kalimba(mtof(m), t + i * .22, { vol: .08, dur: 1.4 })); sub(t + .8, mtof(38), mtof(31), .25, 1.6); }
+    },
+    harp: {
+      note(m, t, pan) { harp(mtof(m), t, { vol: .2, pan }); },
+      chord(root, t, lines) {
+        for (let i = 0; i < 8; i++) harp(mtof(penta(i, root)), t + i * .03, { vol: .13, pan: (i - 3.5) * .15 });
+        harp(mtof(root - 12), t, { vol: .22 });
+        sub(t, mtof(root - 24), mtof(root - 24), .18, 1.4);
+        if (lines > 1) for (let i = 0; i < 8; i++) harp(mtof(penta(i + 5, root)), t + .35 + i * .03, { vol: .1, pan: (i - 3.5) * .2 });
+      },
+      place(n, pan, t) { thud(t, { vol: .22, from: 120, to: 55, dur: .12 }); harp(mtof(penta(n, 48)), t, { vol: .24, pan }); },
+      combo(n, t) { for (let i = 0; i < Math.min(n + 4, 12); i++) harp(mtof(penta(i + n, 67)), t + i * .035, { vol: .12, pan: (i % 2 ? .4 : -.4) }); },
+      refill(t) { [0, 2, 4].forEach((k, i) => harp(mtof(penta(k + 5, 72)), t + i * .07, { vol: .08 })); },
+      record(t) { for (let i = 0; i < 14; i++) harp(mtof(penta(i, 60)), t + i * .045, { vol: .14, pan: (i - 7) * .1 }); harp(mtof(36), t + .65, { vol: .25 }); },
+      over(t) { for (let i = 9; i >= 0; i--) harp(mtof(penta(i, 55)), t + (9 - i) * .09, { vol: .13 }); }
+    },
+    rhodes: {
+      note(m, t, pan) { rhodes(mtof(m), t, { vol: .07, pan, dur: 1.2 }); },
+      chord(root, t, lines) {
+        [0, 4, 7, 11, 14].forEach((st, i) => rhodes(mtof(root - 12 + st), t + i * .02, { vol: .05, dur: 2.4, pan: (i - 2) * .2 }));
+        rhodes(mtof(root - 24), t, { vol: .07, dur: 2.6 });
+        sub(t, mtof(root - 24), mtof(root - 24), .15, 1.6);
+        if (lines > 1) [19, 21, 26].forEach((st, i) => rhodes(mtof(root + st), t + .3 + i * .12, { vol: .045, dur: 1.4 }));
+      },
+      place(n, pan, t) { thud(t, { vol: .25, from: 120, to: 50, dur: .14 }); rhodes(mtof(penta(n, 48)), t, { vol: .07, pan, dur: .8 }); },
+      combo(n, t) { for (let i = 0; i < Math.min(n + 2, 8); i++) rhodes(mtof(penta(i + n * 2, 72)), t + i * .08, { vol: .05, dur: 1, pan: (i % 2 ? .4 : -.4) }); },
+      refill(t) { [0, 2, 4].forEach((k, i) => rhodes(mtof(penta(k + 5, 72)), t + i * .08, { vol: .035, dur: .6 })); },
+      record(t) { [60, 64, 67, 71, 74, 79, 83, 86].forEach((m, i) => rhodes(mtof(m), t + i * .09, { vol: .06, dur: 2 })); rhodes(mtof(36), t + .7, { vol: .08, dur: 3 }); },
+      over(t) { [72, 67, 63, 58].forEach((m, i) => rhodes(mtof(m), t + i * .28, { vol: .06, dur: 1.8 })); rhodes(mtof(44), t + 1.1, { vol: .07, dur: 3 }); }
+    },
+    synth: {
+      note(m, t, pan) { synthPluck(mtof(m), t, { vol: .055, pan }); },
+      chord(root, t, lines) {
+        synthPad([mtof(root - 12), mtof(root - 5), mtof(root + 4), mtof(root + 11)], t, { vol: .04 + lines * .01, dur: 1.6 + lines * .3 });
+        sub(t, mtof(root - 12), mtof(root - 24), .5, .9);
+        if (lines > 1) { noiseHit(t, { vol: .08, dur: .8, freq: 300, to: 6000, type: 'bandpass', q: 3, rev: .6, attack: .3 }); [12, 16, 19, 24].forEach((st, i) => synthPluck(mtof(root + st), t + .3 + i * .09, { vol: .04, cutoff: 4000 })); }
+      },
+      place(n, pan, t) { sub(t, 110, 42, .45, .32); synthPluck(mtof(penta(n, 48)), t, { vol: .05, pan, cutoff: 900, echo: false }); },
+      combo(n, t) { for (let i = 0; i < Math.min(n + 3, 10); i++) synthPluck(mtof(penta(i + n * 2, 72)), t + i * .06, { vol: .035, cutoff: 1500 + i * 400, pan: (i % 2 ? .5 : -.5), echo: i === Math.min(n + 3, 10) - 1 }); },
+      refill(t) { [0, 2, 4].forEach((k, i) => synthPluck(mtof(penta(k + 5, 72)), t + i * .07, { vol: .025, echo: false })); },
+      record(t) { synthPad([mtof(48), mtof(55), mtof(64), mtof(71)], t, { vol: .06, attack: .3, dur: 2.5 }); [72, 76, 79, 83, 84, 88, 91, 96].forEach((m, i) => synthPluck(mtof(m), t + .2 + i * .08, { vol: .04, cutoff: 5000, echo: false })); sub(t, 110, 36, .5, 1.5); },
+      over(t) { synthPad([mtof(45), mtof(52), mtof(60)], t, { vol: .05, attack: .4, dur: 2.5 }); sub(t + .2, 90, 30, .4, 2); }
     }
   };
   const pack = id => PACKS[id || (HB.profile && HB.profile.sound)] || PACKS.xylo;

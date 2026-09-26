@@ -31,8 +31,8 @@ android {
         // 34, а не 35: на 35 Android принудительно рисует приложение под системными
         // панелями, и игре пришлось бы самой обходить вырезы и полоски.
         targetSdk = 34
-        versionCode = 5
-        versionName = "1.4"
+        versionCode = 6
+        versionName = "1.5"
     }
 
     buildTypes {
