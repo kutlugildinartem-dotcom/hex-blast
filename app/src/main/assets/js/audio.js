@@ -127,6 +127,144 @@
     });
   }
 
+  /* ---------- инструменты для наборов звуков ---------- */
+  let pulseWave = null;
+  function pulse() {
+    if (pulseWave) return pulseWave;
+    const n = 32, re = new Float32Array(n), im = new Float32Array(n), d = .25;
+    for (let i = 1; i < n; i++) { re[i] = 2 / (i * Math.PI) * Math.sin(2 * Math.PI * i * d); im[i] = 2 / (i * Math.PI) * (1 - Math.cos(2 * Math.PI * i * d)); }
+    pulseWave = ac.createPeriodicWave(re, im);
+    return pulseWave;
+  }
+  /** Квадратная 25%-волна старых приставок; blip — короткий скачок на октаву в атаке. */
+  function chip(freq, t, { vol = .06, dur = .14, pan = 0, blip = true, tri = false } = {}) {
+    const o = ac.createOscillator();
+    if (tri) o.type = 'triangle'; else o.setPeriodicWave(pulse());
+    o.frequency.setValueAtTime(blip ? freq * 2 : freq, t);
+    if (blip) o.frequency.setValueAtTime(freq, t + .018);
+    const g = ac.createGain();
+    g.gain.setValueAtTime(vol, t); g.gain.setValueAtTime(vol * .7, t + dur * .5); g.gain.linearRampToValueAtTime(0, t + dur);
+    o.connect(g); out(g, pan, .08);
+    o.start(t); o.stop(t + dur + .02);
+  }
+  /** Рояль: обертоны с лёгкой негармоничностью струны, фильтр закрывается, стук молоточка. */
+  function piano(freq, t, { vol = .1, dur = 1.8, pan = 0 } = {}) {
+    const f = ac.createBiquadFilter(); f.type = 'lowpass';
+    f.frequency.setValueAtTime(Math.min(9000, freq * 10), t);
+    f.frequency.exponentialRampToValueAtTime(Math.max(400, freq * 2.2), t + .6);
+    const bus = ac.createGain(); f.connect(bus); out(bus, pan, .35);
+    [1, 2, 3, 4, 5, 6].forEach((n, i) => {
+      const o = ac.createOscillator();
+      o.frequency.value = freq * n * Math.sqrt(1 + .0004 * n * n); o.detune.value = i % 2 ? 3 : -3;
+      const d = dur / Math.pow(n, .6), g = envGain(t, .003, vol * [1, .5, .28, .14, .08, .04][i], d);
+      o.connect(g); g.connect(f);
+      o.start(t); o.stop(t + d + .05);
+    });
+    noiseHit(t, { vol: vol * .25, dur: .02, freq: 2500, type: 'bandpass', q: 1, rev: .1, attack: .001, pan });
+  }
+  /** Хрустальный колокольчик с негармоничным спектром и пинг-понг эхом. */
+  function glassBell(freq, t, { vol = .06, dur = 2.4, pan = 0 } = {}) {
+    [0, .19, .38].forEach((d, i) => {
+      const k = [1, .45, .2][i], p = i === 0 ? pan : (i % 2 ? -.7 : .7);
+      bell(freq, t + d, { vol: vol * k, dur: dur * (1 - i * .2), pan: p, rev: .6, ratio: 2.756, index: .9 });
+      bell(freq * 2, t + d + .002, { vol: vol * k * .3, dur: dur * .5, pan: p, rev: .6, ratio: 5.4, index: .5 });
+    });
+  }
+  function kick(t, vol = .9) { thud(t, { vol, from: 150, to: 42, dur: .32 }); noiseHit(t, { vol: vol * .25, dur: .02, freq: 3000, type: 'highpass', rev: .02, attack: .001 }); }
+  function tom(freq, t, vol = .6, pan = 0) {
+    const o = ac.createOscillator();
+    o.frequency.setValueAtTime(freq * 1.7, t); o.frequency.exponentialRampToValueAtTime(freq, t + .07);
+    const g = envGain(t, .002, vol, .38); o.connect(g); out(g, pan, .25);
+    o.start(t); o.stop(t + .45);
+    noiseHit(t, { vol: vol * .25, dur: .06, freq: 1500, type: 'bandpass', q: 1.5, rev: .15, attack: .001, pan });
+  }
+  function snare(t, vol = .5, pan = 0) {
+    noiseHit(t, { vol, dur: .18, freq: 2200, type: 'bandpass', q: .8, rev: .25, attack: .001, pan });
+    const o = ac.createOscillator(); o.type = 'triangle';
+    o.frequency.setValueAtTime(240, t); o.frequency.exponentialRampToValueAtTime(170, t + .08);
+    const g = envGain(t, .001, vol * .45, .12); o.connect(g); out(g, pan, .2);
+    o.start(t); o.stop(t + .15);
+  }
+  const hat = (t, vol = .18, open = false, pan = 0) => noiseHit(t, { vol, dur: open ? .35 : .05, freq: 8000, type: 'highpass', rev: .1, attack: .001, pan });
+  function crash(t, vol = .35) {
+    noiseHit(t, { vol, dur: 1.8, freq: 5000, type: 'highpass', rev: .5, attack: .002 });
+    noiseHit(t, { vol: vol * .5, dur: 1.2, freq: 3200, type: 'bandpass', q: 3, rev: .5, attack: .002 });
+  }
+
+  /* Наборы: каждый умеет сыграть ноту каскада, аккорд очистки, постановку, комбо и т. д. */
+  const PACKS = {
+    xylo: {
+      note(m, t, pan, k) { (k % 2 ? bell : pluck)(mtof(m), t, k % 2 ? { vol: .07, dur: .5, pan, rev: .4 } : { vol: .09, dur: .3, pan, bright: 6000 }); },
+      chord(root, t, lines) {
+        pad([mtof(root), mtof(root + 4), mtof(root + 7), mtof(root + 12)], t, { vol: .045 + lines * .012, dur: .9 + lines * .2 });
+        bell(mtof(root + 24), t + .05, { vol: .08, dur: 1.4 });
+        if (lines > 1) { thud(t, { vol: .45, from: 120, to: 36, dur: .35 }); [28, 31, 36].forEach((st, i) => bell(mtof(root + st), t + .25 + i * .07, { vol: .06, dur: 1.2, pan: (i - 1) * .5 })); }
+        noiseHit(t, { vol: .06 + lines * .02, dur: .5, freq: 9000, to: 1500, type: 'bandpass', q: .8, rev: .4 });
+      },
+      place(n, pan, t) { thud(t, { vol: .55 }); pluck(mtof(penta(n + 2, 60)), t + .01, { vol: .09, dur: .25, pan, bright: 2400 }); pluck(mtof(penta(n + 4, 72)), t + .05, { vol: .05, dur: .2, pan, bright: 3000 }); },
+      combo(n, t) { for (let i = 0; i < Math.min(n + 1, 7); i++) bell(mtof(penta(i + n * 2, 76)), t + i * .045, { vol: .06, dur: .6, pan: (i % 2 ? .4 : -.4) }); },
+      refill(t) { [0, 2, 4].forEach((k, i) => bell(mtof(penta(k + 5, 72)), t + i * .06, { vol: .045, dur: .5, pan: (i - 1) * .5 })); },
+      record(t) { [72, 76, 79, 84, 88, 91, 96].forEach((m, i) => bell(mtof(m), t + i * .075, { vol: .09, dur: 1.2, pan: (i - 3) * .2 })); pad([mtof(60), mtof(64), mtof(67), mtof(72)], t + .45, { vol: .07, dur: 1.6 }); },
+      over(t) { [79, 74, 71, 67, 62].forEach((m, i) => pluck(mtof(m), t + i * .16, { vol: .09, dur: .5, bright: 2400 })); pad([mtof(55), mtof(59), mtof(62)], t + .3, { vol: .05, attack: .3, dur: 2 }); }
+    },
+    glass: {
+      note(m, t, pan) { glassBell(mtof(m + 12), t, { vol: .05, dur: 1.8, pan }); },
+      chord(root, t, lines) {
+        [0, 4, 7, 11, 14].forEach((st, i) => glassBell(mtof(root + 12 + st), t + i * .04, { vol: .034, dur: 2.6, pan: (i - 2) * .25 }));
+        if (lines > 1) pad([mtof(root), mtof(root + 7), mtof(root + 12)], t, { vol: .04, attack: .25, dur: 2.2 });
+        noiseHit(t, { vol: .05, dur: 1.2, freq: 9000, to: 14000, type: 'highpass', rev: .7 });
+      },
+      place(n, pan, t) { thud(t, { vol: .3, from: 140, to: 60, dur: .15 }); glassBell(mtof(penta(n + 5, 72)), t, { vol: .04, dur: 1, pan }); },
+      combo(n, t) { for (let i = 0; i < Math.min(n + 2, 8); i++) glassBell(mtof(penta(i + n * 2, 79)), t + i * .06, { vol: .033, dur: 1.2, pan: (i % 2 ? .5 : -.5) }); },
+      refill(t) { [0, 2, 4].forEach((k, i) => glassBell(mtof(penta(k + 7, 79)), t + i * .07, { vol: .028, dur: 1 })); },
+      record(t) { [84, 88, 91, 96, 100, 103].forEach((m, i) => glassBell(mtof(m), t + i * .08, { vol: .05, dur: 2 })); pad([mtof(60), mtof(67), mtof(76)], t + .4, { vol: .05, dur: 2 }); },
+      over(t) { [91, 86, 83, 79, 74].forEach((m, i) => glassBell(mtof(m), t + i * .2, { vol: .04, dur: 1.8 })); }
+    },
+    chip: {
+      note(m, t, pan) { chip(mtof(m + 12), t, { vol: .05, dur: .1, pan }); },
+      chord(root, t, lines) {
+        const r = root + 12;
+        [0, 4, 7, 12, 16, 19, 24].forEach((st, i) => chip(mtof(r + st), t + .05 + i * .035, { vol: .045, dur: .07, blip: false }));
+        chip(mtof(root - 12), t, { vol: .09, dur: .3, tri: true, blip: false });
+        if (lines > 1) [0, 7, 12].forEach((st, i) => chip(mtof(r + 12 + st), t + .35 + i * .06, { vol: .045, dur: .12 }));
+      },
+      place(n, pan, t) {
+        const o = ac.createOscillator(); o.type = 'triangle';
+        o.frequency.setValueAtTime(220, t); o.frequency.exponentialRampToValueAtTime(55, t + .09);
+        const g = ac.createGain(); g.gain.setValueAtTime(.35, t); g.gain.linearRampToValueAtTime(0, t + .12);
+        o.connect(g); out(g, pan, 0); o.start(t); o.stop(t + .14);
+        noiseHit(t, { vol: .08, dur: .03, freq: 4000, type: 'highpass', rev: 0, attack: .001 });
+      },
+      combo(n, t) { for (let i = 0; i < Math.min(n + 2, 8); i++) chip(mtof(penta(i + n * 2, 84)), t + i * .045, { vol: .045, dur: .06, pan: (i % 2 ? .5 : -.5) }); },
+      refill(t) { [72, 79, 84].forEach((m, i) => chip(mtof(m), t + i * .05, { vol: .04, dur: .06 })); },
+      record(t) { [72, 76, 79, 84, 79, 84, 88, 91, 96].forEach((m, i) => chip(mtof(m), t + i * .07, { vol: .05, dur: .09 })); [48, 55, 60].forEach((m, i) => chip(mtof(m), t + i * .21, { vol: .09, dur: .2, tri: true, blip: false })); },
+      over(t) { [72, 67, 64, 60, 55, 52, 48].forEach((m, i) => chip(mtof(m), t + i * .1, { vol: .05, dur: .12, blip: false })); }
+    },
+    piano: {
+      note(m, t, pan) { piano(mtof(m), t, { vol: .07, dur: 1.2, pan }); },
+      chord(root, t, lines) {
+        [0, 4, 7, 11, 14].forEach((st, i) => piano(mtof(root - 12 + st), t + i * .018, { vol: .06, dur: 2.4 }));
+        piano(mtof(root - 24), t, { vol: .08, dur: 2.6 });
+        if (lines > 1) [19, 23, 26].forEach((st, i) => piano(mtof(root + st), t + .3 + i * .1, { vol: .05, dur: 1.6 }));
+      },
+      place(n, pan, t) { thud(t, { vol: .3, from: 130, to: 55, dur: .15 }); piano(mtof(penta(n, 55)), t, { vol: .05, dur: .6, pan }); },
+      combo(n, t) { for (let i = 0; i < Math.min(n + 1, 7); i++) piano(mtof(penta(i + n * 2, 72)), t + i * .07, { vol: .05, dur: .9, pan: (i % 2 ? .4 : -.4) }); },
+      refill(t) { [0, 2, 4].forEach((k, i) => piano(mtof(penta(k + 5, 72)), t + i * .08, { vol: .03, dur: .6 })); },
+      record(t) { [60, 64, 67, 72, 76, 79, 84].forEach((m, i) => piano(mtof(m), t + i * .09, { vol: .06, dur: 2 })); [36, 43, 48].forEach(m => piano(mtof(m), t + .63, { vol: .06, dur: 3 })); },
+      over(t) { [72, 67, 63, 60].forEach((m, i) => piano(mtof(m), t + i * .25, { vol: .06, dur: 1.6 })); piano(mtof(48), t + 1, { vol: .06, dur: 3 }); piano(mtof(51), t + 1, { vol: .05, dur: 3 }); }
+    },
+    drums: {
+      note(m, t, pan, k) { if (k % 3 === 2) snare(t, .28, pan); else tom(70 + (m - 60) * 7, t, .45, pan); hat(t + .03, .07, false, -pan); },
+      chord(root, t, lines) { kick(t, .9); crash(t + .02, .25 + lines * .08); if (lines > 1) { kick(t + .22, .7); snare(t + .33, .45); kick(t + .44, .8); } },
+      place(n, pan, t) { kick(t, .75); hat(t + .01, .08, false, pan); },
+      combo(n, t) { const c = Math.min(4 + n * 2, 14); for (let i = 0; i < c; i++) snare(t + i * .045, .12 + i * .025, i % 2 ? .3 : -.3); crash(t + c * .045, .25); },
+      refill(t) { hat(t, .1); hat(t + .08, .1); hat(t + .16, .14, true); },
+      record(t) { for (let i = 0; i < 8; i++) tom(200 - i * 18, t + i * .06, .5, (i - 3.5) * .15); kick(t + .5, 1); crash(t + .5, .45); },
+      over(t) { [140, 110, 85, 65].forEach((f, i) => tom(f, t + i * .18, .5)); crash(t + .75, .2); }
+    }
+  };
+  const pack = id => PACKS[id || (HB.profile && HB.profile.sound)] || PACKS.xylo;
+
   const sfx = {
     unlock() { if (HB.settings.sound) { init(); if (ac && ac.state === 'suspended') ac.resume(); } },
     setVolume() { if (master) master.gain.setTargetAtTime(volume(), ac.currentTime, .05); },
@@ -138,43 +276,73 @@
       pluck(mtof(a[0]), t, { vol: .08, dur: .22, bright: 4000 });
       bell(mtof(a[1]), t + .07, { vol: .06, dur: .6 });
     },
-    place(n = 3, x = 0) {
-      if (!ready()) return; const t = now(), pan = x * .6;
-      thud(t, { vol: .55 });
-      pluck(mtof(penta(n + 2, 60)), t + .01, { vol: .09, dur: .25, pan, bright: 2400 });
-      pluck(mtof(penta(n + 4, 72)), t + .05, { vol: .05, dur: .2, pan, bright: 3000 });
-    },
+    place(n = 3, x = 0) { if (ready()) pack().place(n, x * .6, now()); },
     invalid() {
       if (!ready()) return; const t = now();
       pluck(220, t, { vol: .08, dur: .15, bright: 900 });
       pluck(196, t + .08, { vol: .07, dur: .18, bright: 800 });
     },
-    /** Каскад: по ноте на каждую сгоревшую соту, в такт волне очистки. */
-    clear(delays, lines, combo, xs) {
-      if (!ready()) return; const t = now();
+    /** Каскад: по ноте на каждую сгоревшую соту, в такт волне очистки. Тембр — из выбранного набора. */
+    clear(delays, lines, combo, xs, packId) {
+      if (!ready()) return; const t = now(), P = pack(packId);
       const shift = Math.min(combo - 1, 8) * 2;
       const order = delays.map((d, i) => [d, xs[i] || 0]).sort((a, b) => a[0] - b[0]);
       const step = Math.max(1, Math.floor(order.length / 16));
       order.forEach(([d, x], i) => {
         if (i % step) return;
         const k = Math.floor(i / step);
-        const freq = mtof(penta(k + shift, 67));
-        (k % 2 ? bell : pluck)(freq, t + d, k % 2
-          ? { vol: .07, dur: .5, pan: x * .8, rev: .4 }
-          : { vol: .09, dur: .3, pan: x * .8, bright: 6000 });
+        P.note(penta(k + shift, 67), t + d, x * .8, k);
       });
-      const root = 60 + shift;
-      pad([mtof(root), mtof(root + 4), mtof(root + 7), mtof(root + 12)], t, { vol: .045 + lines * .012, dur: .9 + lines * .2 });
-      bell(mtof(root + 24), t + .05, { vol: .08, dur: 1.4 });
-      if (lines > 1) {
-        thud(t, { vol: .45, from: 120, to: 36, dur: .35 });
-        [28, 31, 36].forEach((st, i) => bell(mtof(root + st), t + .25 + i * .07, { vol: .06, dur: 1.2, pan: (i - 1) * .5 }));
-      }
-      noiseHit(t, { vol: .06 + lines * .02, dur: .5, freq: 9000, to: 1500, type: 'bandpass', q: .8, rev: .4 });
+      P.chord(60 + shift, t, lines);
     },
-    combo(n) {
-      if (!ready()) return; const t = now(.12);
-      for (let i = 0; i < Math.min(n + 1, 7); i++) bell(mtof(penta(i + n * 2, 76)), t + i * .045, { vol: .06, dur: .6, pan: (i % 2 ? .4 : -.4) });
+    combo(n) { if (ready()) pack().combo(n, now(.12)); },
+    /** Демо набора для магазина: постановка, каскад, аккорд и комбо. */
+    demo(id) {
+      if (!ready()) return; const P = pack(id), t = now();
+      P.place(3, 0, t);
+      for (let k = 0; k < 8; k++) P.note(penta(k, 67), t + .35 + k * .05, (k - 3.5) * .15, k);
+      P.chord(60, t + .35, 1);
+      P.combo(3, t + 1.2);
+    },
+    popper() {
+      if (!ready()) return; const t = now();
+      noiseHit(t, { vol: .35, dur: .12, freq: 1800, type: 'bandpass', q: .7, rev: .2, attack: .001 });
+      thud(t, { vol: .22, from: 320, to: 120, dur: .08 });
+      for (let i = 0; i < 7; i++) bell(mtof(96 + i * 2), t + .06 + i * .04 + Math.random() * .03, { vol: .02, dur: .35, pan: Math.random() * 1.4 - .7 });
+    },
+    pixelBurst() {
+      if (!ready()) return; const t = now();
+      [84, 79, 76, 72, 67].forEach((m, i) => chip(mtof(m), t + i * .04, { vol: .04, dur: .05 }));
+      noiseHit(t, { vol: .08, dur: .12, freq: 2000, type: 'highpass', rev: .05, attack: .001 });
+    },
+    paint() {
+      if (!ready()) return; const t = now();
+      noiseHit(t, { vol: .22, dur: .2, freq: 900, to: 250, type: 'lowpass', q: 1.5, rev: .2, attack: .004 });
+      thud(t, { vol: .22, from: 110, to: 70, dur: .12 });
+    },
+    launch(n = 1) {
+      if (!ready()) return;
+      for (let i = 0; i < n; i++) {
+        const t = now(i * .18), o = ac.createOscillator();
+        o.frequency.setValueAtTime(600 + Math.random() * 200, t); o.frequency.exponentialRampToValueAtTime(2000 + Math.random() * 600, t + .55);
+        const g = envGain(t, .05, .035, .55); o.connect(g); out(g, Math.random() * .8 - .4, .3);
+        o.start(t); o.stop(t + .65);
+        noiseHit(t, { vol: .07, dur: .5, freq: 3000, to: 6000, type: 'bandpass', q: 2, rev: .2, attack: .05 });
+      }
+    },
+    firework(x = 180) {
+      if (!ready()) return; const t = now(), pan = Math.max(-.8, Math.min(.8, (x - 180) / 180 * .8));
+      noiseHit(t, { vol: .55, dur: .7, freq: 2500, to: 150, type: 'lowpass', q: .6, rev: .7, attack: .002, pan });
+      thud(t, { vol: .45, from: 90, to: 35, dur: .5 });
+      for (let i = 0; i < 16; i++) noiseHit(t + .15 + Math.random() * .7, { vol: .07 + Math.random() * .08, dur: .012, freq: 4000 + Math.random() * 4000, type: 'highpass', rev: .3, attack: .001, pan: Math.max(-1, Math.min(1, pan + Math.random() * .6 - .3)) });
+    },
+    blackhole() {
+      if (!ready()) return; const t = now();
+      noiseHit(t, { vol: .35, dur: 1.1, freq: 3500, to: 90, type: 'bandpass', q: 2.5, rev: .6, attack: .25 });
+      const o = ac.createOscillator();
+      o.frequency.setValueAtTime(160, t); o.frequency.exponentialRampToValueAtTime(28, t + 1.1);
+      const g = envGain(t, .3, .5, .9); o.connect(g); out(g, 0, .4); o.start(t); o.stop(t + 1.3);
+      bell(mtof(40), t + .9, { vol: .06, dur: 1.5, ratio: 1.41, index: 3 });
     },
     bomb() {
       if (!ready()) return; const t = now();
@@ -210,21 +378,13 @@
       if (!ready()) return; const t = now();
       noiseHit(t, { vol: .08, dur: .35, freq: 6000, to: 9000, type: 'highpass', rev: .1 });
     },
-    refill() {
-      if (!ready()) return; const t = now(.08);
-      [0, 2, 4].forEach((k, i) => bell(mtof(penta(k + 5, 72)), t + i * .06, { vol: .045, dur: .5, pan: (i - 1) * .5 }));
-    },
+    refill() { if (ready()) pack().refill(now(.08)); },
     record() {
       if (!ready()) return; const t = now();
-      [72, 76, 79, 84, 88, 91, 96].forEach((m, i) => bell(mtof(m), t + i * .075, { vol: .09, dur: 1.2, pan: (i - 3) * .2 }));
-      pad([mtof(60), mtof(64), mtof(67), mtof(72)], t + .45, { vol: .07, dur: 1.6 });
+      pack().record(t);
       noiseHit(t + .4, { vol: .06, dur: 1, freq: 8000, to: 14000, type: 'highpass', rev: .6 });
     },
-    over() {
-      if (!ready()) return; const t = now();
-      [79, 74, 71, 67, 62].forEach((m, i) => pluck(mtof(m), t + i * .16, { vol: .09, dur: .5, bright: 2400 }));
-      pad([mtof(55), mtof(59), mtof(62)], t + .3, { vol: .05, attack: .3, dur: 2 });
-    },
+    over() { if (ready()) pack().over(now()); },
     click() {
       if (!ready()) return; const t = now();
       pluck(mtof(84), t, { vol: .06, dur: .12, bright: 5000, rev: .1 });

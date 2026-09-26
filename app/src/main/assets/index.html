@@ -19,7 +19,7 @@
     <button class="btn-link" id="h-new" type="button" hidden>Новая игра</button>
   </div>
   <nav class="home-grid">
-    <button type="button" data-open="shop"><i class="ic ic-skin"></i>Скины</button>
+    <button type="button" data-open="shop"><i class="ic ic-skin"></i>Магазин</button>
     <button type="button" data-open="settings"><i class="ic ic-gear"></i>Настройки</button>
   </nav>
   <button class="update-chip" id="h-update" type="button" hidden>Вышла версия <b></b> · обновить</button>
@@ -30,7 +30,7 @@
     <h2>Пауза</h2>
     <button class="btn-play" id="p-resume" type="button">Продолжить</button>
     <div class="stack">
-      <button class="btn" type="button" data-open="shop">Скины</button>
+      <button class="btn" type="button" data-open="shop">Магазин</button>
       <button class="btn" type="button" data-open="settings">Настройки</button>
       <button class="btn" id="p-restart" type="button">Начать заново</button>
       <button class="btn-link" id="p-menu" type="button">Главное меню</button>
@@ -127,10 +127,11 @@
 </section>
 
 <section id="shop" class="screen page" hidden>
-  <header class="page-head"><button class="back" type="button" data-back aria-label="Назад">‹</button><h2>Скины</h2>
-    <div class="pill honey-pill"><i class="honey"></i><b id="s-honey">0</b></div></header>
+  <header class="page-head"><button class="back" type="button" data-back aria-label="Назад">‹</button><h2>Магазин</h2>
+    <div class="pill honey-pill"><i class="honey"></i><b id="s-honey">0</b></div>
+    <nav class="shop-tabs" id="shop-tabs"><button type="button" data-tab="skins">Скины</button><button type="button" data-tab="sounds">Звуки</button><button type="button" data-tab="trails">Следы</button><button type="button" data-tab="bursts">Взрывы</button></nav></header>
   <div class="page-body">
-    <p class="muted small shop-hint">Мёд дают за каждую партию: чем больше счёт и линий, тем больше мёда.</p>
+    <p class="muted small shop-hint" id="shop-hint"></p>
     <div class="skin-grid" id="skin-grid"></div>
   </div>
 </section>
@@ -162,5 +163,6 @@
 <script src="js/skins.js"></script>
 <script src="js/skinart.js"></script>
 <script src="js/skinart2.js"></script>
+<script src="js/fx.js"></script>
 <script src="js/game.js"></script>
 <script src="js/ui.js"></script>

@@ -820,62 +820,61 @@
   };
 
   /* ================= СТЕКЛО ================= */
-  // Фон — яркие плывущие пятна. Каждая сота показывает размытую копию фона под собой,
-  // как матовое стекло в iOS: фон ужимается в 8 раз и растягивается обратно.
-  const glass = { big: null, small: null, w: 0, h: 0 };
-  const GLASS_BLOBS = ['255,110,160', '100,140,255', '70,230,200', '255,200,90', '190,120,255'];
-  function glassPaint(c, w, h, t) {
+  // Жидкое стекло как в iOS: тонированное полупрозрачное тело, толщина по краю,
+  // светлая кромка сверху-слева, линза-блик и каустика снизу. Всё статичное — в спрайте,
+  // вживую только редкий пробегающий блик, поэтому скин лёгкий.
+  function rgbaHex(hex, a) { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; }
+  function liquidGlass(g, R, color) {
+    hexPath(g, R * .05, R * .12, R * .97); g.fillStyle = 'rgba(0,0,25,.3)'; g.fill();
+    hexPath(g, 0, 0, R);
+    const body = g.createLinearGradient(-R, -R, R, R);
+    body.addColorStop(0, rgbaHex(color, .5)); body.addColorStop(1, rgbaHex(color, .24));
+    g.fillStyle = body; g.fill();
+    g.fillStyle = 'rgba(255,255,255,.07)'; g.fill();
+    g.save(); hexPath(g, 0, 0, R); g.clip();
+    for (let i = 0; i < 6; i++) { hexPath(g, 0, 0, R * (1 - i * .035)); g.lineWidth = R * .05; g.strokeStyle = `rgba(255,255,255,${.14 - i * .022})`; g.stroke(); }
+    const sh = g.createLinearGradient(0, -R, 0, -R * .05);
+    sh.addColorStop(0, 'rgba(255,255,255,.6)'); sh.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = sh; g.beginPath(); g.ellipse(-R * .05, -R * .66, R * .78, R * .4, 0, 0, TAU); g.fill();
+    const ca = g.createRadialGradient(R * .12, R * .78, 0, R * .12, R * .78, R * .6);
+    ca.addColorStop(0, rgbaHex(color, .9)); ca.addColorStop(.35, 'rgba(255,255,255,.35)'); ca.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = ca; g.beginPath(); g.ellipse(R * .12, R * .8, R * .6, R * .28, 0, 0, TAU); g.fill();
+    g.restore();
+    hexPath(g, 0, 0, R * .975);
+    const rim = g.createLinearGradient(-R * .7, -R, R * .7, R);
+    rim.addColorStop(0, 'rgba(255,255,255,.95)'); rim.addColorStop(.42, 'rgba(255,255,255,.2)'); rim.addColorStop(.72, 'rgba(255,255,255,.1)'); rim.addColorStop(1, 'rgba(255,255,255,.65)');
+    g.lineWidth = R * .065; g.lineJoin = 'round'; g.strokeStyle = rim; g.stroke();
+    g.fillStyle = 'rgba(255,255,255,.95)'; g.beginPath(); g.ellipse(-R * .44, -R * .4, R * .11, R * .045, -.85, 0, TAU); g.fill();
+    g.fillStyle = 'rgba(255,255,255,.6)'; g.beginPath(); g.arc(-R * .26, -R * .56, R * .03, 0, TAU); g.fill();
+  }
+  const glassBg = { cv: null, w: 0, h: 0 };
+  function paintGlassBg(w, h) {
+    const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+    const c = cv.getContext('2d');
     const g = c.createLinearGradient(0, 0, 0, h); g.addColorStop(0, '#1A1F48'); g.addColorStop(1, '#0B0F24');
     c.fillStyle = g; c.fillRect(0, 0, w, h);
-    GLASS_BLOBS.forEach((col, i) => {
-      const x = w * (.5 + .42 * Math.sin(t * .13 + i * 1.7)), y = h * (.45 + .38 * Math.cos(t * .1 + i * 2.3)), r = w * (.42 + .08 * Math.sin(t * .2 + i));
-      const rg = c.createRadialGradient(x, y, 0, x, y, r);
-      rg.addColorStop(0, `rgba(${col},.85)`); rg.addColorStop(1, `rgba(${col},0)`);
+    [[.2, .2, '255,110,160'], [.85, .35, '100,140,255'], [.3, .7, '70,230,200'], [.8, .85, '190,120,255']].forEach(([x, y, col]) => {
+      const rg = c.createRadialGradient(x * w, y * h, 0, x * w, y * h, w * .55);
+      rg.addColorStop(0, `rgba(${col},.35)`); rg.addColorStop(1, `rgba(${col},0)`);
       c.fillStyle = rg; c.fillRect(0, 0, w, h);
     });
-  }
-  function glassPane(c, R, wx, wy, alpha) {
-    if (!glass.small) return false;
-    c.save(); c.globalAlpha *= alpha;
-    c.drawImage(glass.small, -wx, -wy, glass.w, glass.h);
-    c.restore();
-    return true;
+    return cv;
   }
   A.ice = {
-    empty(c, R, skin, x, y) {
-      c.save(); hexPath(c, 0, 0, R * .93); c.clip();
-      glassPane(c, R, x, y, .55);
-      c.fillStyle = 'rgba(255,255,255,.06)'; c.fillRect(-R, -R, 2 * R, 2 * R);
-      c.restore();
-      hexPath(c, 0, 0, R * .93); c.lineWidth = 1; c.strokeStyle = 'rgba(255,255,255,.14)'; c.stroke();
+    empty(c, R) {
+      hexPath(c, 0, 0, R * .93); c.fillStyle = 'rgba(255,255,255,.05)'; c.fill();
+      c.lineWidth = 1; c.strokeStyle = 'rgba(255,255,255,.13)'; c.stroke();
     },
     tile(c, R, color, o) {
-      c.save(); hexPath(c, 0, 0, R); c.clip();
-      if (!glassPane(c, R, o.wx, o.wy, 1)) { c.fillStyle = color; c.globalAlpha *= .5; c.fillRect(-R, -R, 2 * R, 2 * R); c.globalAlpha /= .5; }
-      c.fillStyle = 'rgba(255,255,255,.14)'; c.fillRect(-R, -R, 2 * R, 2 * R);
-      c.fillStyle = color; c.globalAlpha *= .34; c.fillRect(-R, -R, 2 * R, 2 * R); c.globalAlpha /= .34;
-      const hg = c.createLinearGradient(0, -R, 0, R);
-      hg.addColorStop(0, 'rgba(255,255,255,.5)'); hg.addColorStop(.45, 'rgba(255,255,255,.06)'); hg.addColorStop(1, 'rgba(0,0,30,.12)');
-      c.fillStyle = hg; c.fillRect(-R, -R, 2 * R, 2 * R);
-      c.fillStyle = 'rgba(255,255,255,.55)'; c.beginPath(); c.ellipse(-R * .28, -R * .55, R * .34, R * .1, -.35, 0, TAU); c.fill();
-      c.restore();
-      hexPath(c, 0, 0, R * .965); c.lineJoin = 'round';
-      c.lineWidth = R * .07; c.strokeStyle = 'rgba(255,255,255,.7)'; c.stroke();
-      c.lineWidth = R * .025; c.strokeStyle = mix(color, 'w', .5); c.stroke();
+      blit(c, sprite('lg' + color, R, (g, R) => liquidGlass(g, R, color)), R);
+      const a = o.board ? o.age : 99;
+      if (a < .6) { c.save(); hexPath(c, 0, 0, R); c.clip(); c.globalCompositeOperation = 'lighter'; c.fillStyle = `rgba(255,255,255,${.5 * (1 - a / .6)})`; c.fillRect(-R, -R, 2 * R, 2 * R); c.restore(); }
+      sweep(c, R, o, 160, 12, 'rgba(255,255,255,.55)');
     },
     bg(c, w, h, info) {
-      if (info.preview) { glassPaint(c, w, h, 0); return true; }
-      if (!glass.big || glass.w !== w || glass.h !== h) {
-        glass.big = document.createElement('canvas'); glass.big.width = w; glass.big.height = h;
-        glass.small = document.createElement('canvas'); glass.small.width = Math.ceil(w / 8); glass.small.height = Math.ceil(h / 8);
-        glass.w = w; glass.h = h;
-      }
-      glassPaint(glass.big.getContext('2d'), w, h, K.time());
-      const sg = glass.small.getContext('2d');
-      sg.imageSmoothingEnabled = true; sg.imageSmoothingQuality = 'high';
-      sg.clearRect(0, 0, glass.small.width, glass.small.height);
-      sg.drawImage(glass.big, 0, 0, glass.small.width, glass.small.height);
-      c.drawImage(glass.big, 0, 0);
+      if (info.preview) { c.drawImage(paintGlassBg(w, h), 0, 0); return true; }
+      if (!glassBg.cv || glassBg.w !== w || glassBg.h !== h) { glassBg.cv = paintGlassBg(w, h); glassBg.w = w; glassBg.h = h; }
+      c.drawImage(glassBg.cv, 0, 0);
       return true;
     },
     breakFx(api, x, y, color) {

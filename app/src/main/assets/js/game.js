@@ -186,9 +186,9 @@
       parts.push({ k: 'drop', x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, g: 1100, t: 0, life: rnd(.7, 1.2), color, r: rnd(3, 5.5) });
     }
   }
-  function splat(x, y, color, life = 2.6) {
-    const blobs = Array.from({ length: 5 }, () => [rnd(-14, 14), rnd(-10, 16), rnd(4, 10)]);
-    blobs.push([0, 0, rnd(10, 14)]);
+  function splat(x, y, color, life = 2.6, scale = 1) {
+    const blobs = Array.from({ length: 5 }, () => [rnd(-14, 14) * scale, rnd(-10, 16) * scale, rnd(4, 10) * scale]);
+    blobs.push([0, 0, rnd(10, 14) * scale]);
     splats.push({ x, y, color, t: 0, life, blobs });
     if (splats.length > 40) splats.shift();
   }
@@ -342,10 +342,12 @@
       }
       const delays = [], xs = [];
       u.forEach(c => {
-        c.fx = { ci: c.ci, v: c.v, bomb: c.bomb, age: time - c.born, delay: delay.get(c), t: 0, burst: false };
+        c.fx = { ci: c.ci, v: c.v, bomb: c.bomb, age: time - c.born, delay: delay.get(c), t: 0, burst: false, hole: { cx: ox, cy: oy } };
         delays.push(c.fx.delay); xs.push((c.x - 180) / 180);
         c.ci = -1; c.bomb = false;
       });
+      const BC = HB.fx.bursts[HB.profile.burst];
+      if (BC) BC.clear(fxApi, ox, oy, { lines: full.length || 1 });
       let pts = Math.round(lineCells * 10 * full.length * (1 + (combo - 1) * .5)) + (u.size - lineCells - strikeCells) * 15 + strikeCells * 12 + bombPts;
       const bits = [];
       if (strike) bits.push('МОЛНИЯ!');
@@ -465,8 +467,9 @@
         fx.t += dt;
         if (!fx.burst && fx.t >= fx.delay) {
           fx.burst = true;
-          const col = colorOf(fx.ci);
-          if (!HB.skins.breakFx(fxApi, cl.x, cl.y, col, fx.v)) {
+          const col = colorOf(fx.ci), B = HB.fx.bursts[HB.profile.burst];
+          if (B) B.cell(fxApi, cl.x, cl.y, col, fx.hole || { cx: cl.x, cy: cl.y });
+          else if (!HB.skins.breakFx(fxApi, cl.x, cl.y, col, fx.v)) {
             shards(cl.x, cl.y, col, 3); sparks(cl.x, cl.y, col, 4, 160); drops(cl.x, cl.y, col, 2);
             splat(cl.x, cl.y, col);
           }
@@ -489,12 +492,16 @@
     for (const f of hudFx) { f.t += dt; f.x += f.vx * dt; f.y += f.vy * dt; f.vx += rnd(-120, 120) * dt; }
     hudFx = hudFx.filter(f => f.t < f.life);
     if (drag) {
-      drag.vs += (drag.dx - drag.vs) * .35; drag.dx = 0;
+      drag.vs += (drag.dx - drag.vs) * .35;
       const pc = pieceAt(drag.i);
-      if (pc && (trailT += dt) > .04) {
-        trailT = 0;
-        parts.push({ k: 'spark', x: pc.x + rnd(-14, 14), y: pc.y + rnd(-10, 10), vx: rnd(-20, 20), vy: rnd(10, 40), g: 0, t: 0, life: .4, color: colorOf(pc.ci), r: rnd(1.5, 3) });
+      if (pc) {
+        const tr = HB.fx.trails[HB.profile.trail] || HB.fx.trails.sparks;
+        const spd = Math.abs(drag.dx) / Math.max(dt, .001);
+        tr.spawn(p => parts.push(p), pc.x, pc.y, Math.min(34, pc.w * pc.sc * .4), spd, dt, colorOf(pc.ci), drag.trail || (drag.trail = {}));
+        (drag.hist || (drag.hist = [])).push({ x: pc.x, y: pc.y, t: time });
+        while (drag.hist.length && time - drag.hist[0].t > (tr.keep || .32)) drag.hist.shift();
       }
+      drag.dx = 0;
     }
     const wiggle = mode === 'play' && inputOn && !drag && idleT > 6 && (idleT % 1.6) < .5;
     let wiggled = false;
@@ -521,16 +528,7 @@
     punch *= Math.exp(-dt * 9);
     bgFlash = Math.max(0, bgFlash - dt * 2.2);
     whiteFlash = Math.max(0, whiteFlash - dt * 4);
-    for (const p of parts) {
-      p.t += dt; p.vy += p.g * dt; p.x += p.vx * dt; p.y += p.vy * dt;
-      if (p.rot != null) p.rot += (p.vr || 0) * dt;
-      if (p.k === 'conf') p.vx *= Math.exp(-dt * 1.5);
-      if (p.k === 'leaf') { p.vx *= Math.exp(-dt * 1.4); if (p.vy > 70) p.vy = 70; }
-      if (p.k === 'bubble') p.vx = Math.sin(p.t * 7 + p.r) * 18;
-      if (p.k === 'firefly') { p.vx += rnd(-400, 400) * dt; p.vy += rnd(-400, 400) * dt; p.vx *= .97; p.vy *= .97; }
-      if (p.k === 'flake') { p.vx = Math.sin(p.t * 3 + p.rot) * 25; if (p.vy > 60) p.vy = 60; }
-    }
-    parts = parts.filter(p => p.t < p.life && p.y < H + 60);
+    parts = HB.fx.update(parts, dt, H);
     for (const s of splats) s.t += dt;
     splats = splats.filter(s => s.t < s.life);
     for (const r of rings) r.t += dt;
@@ -681,6 +679,7 @@
         c.globalAlpha = 1;
       });
     }
+    const hideBurstTile = !!(HB.fx.bursts[HB.profile.burst] || {}).hideTile;
     for (const cl of cells) {
       const fx = cl.fx; if (!fx) continue;
       const lt = fx.t - fx.delay, col = colorOf(fx.ci);
@@ -691,6 +690,7 @@
         if (fx.bomb) drawBomb(c, cl.x, cl.y, S, time * 3);
         continue;
       }
+      if (hideBurstTile) continue;
       const p = lt / .34;
       const sc = p < .22 ? 1 + .3 * eo(p / .22) : 1.3 * (1 - eio((p - .22) / .78));
       o.rot = p * 1.4; o.flash = (1 - p) * .9;
@@ -736,79 +736,7 @@
   }
   const star4 = (c, x, y, r) => HB.skins.star4(c, x, y, r);
   function drawParts(c) {
-    for (const p of parts) {
-      const k = p.t / p.life;
-      c.globalAlpha = p.k === 'conf' ? clamp((1 - k) * 3) : p.k === 'smoke' ? .6 * (1 - k) : 1 - k;
-      c.fillStyle = p.color;
-      switch (p.k) {
-        case 'spark': c.beginPath(); c.arc(p.x, p.y, p.r * (1 - k * .6), 0, TAU); c.fill(); break;
-        case 'shard': hexPath(c, p.x, p.y, p.r * (1 - k * .5), p.rot); c.fill(); break;
-        case 'drop': {
-          const sp = Math.hypot(p.vx, p.vy), a = Math.atan2(p.vy, p.vx);
-          c.save(); c.translate(p.x, p.y); c.rotate(a);
-          if (p.glow) c.globalCompositeOperation = 'lighter';
-          c.beginPath(); c.ellipse(0, 0, p.r * (1 + sp / 260), p.r * (1 - k * .3), 0, 0, TAU); c.fill();
-          c.fillStyle = 'rgba(255,255,255,.5)'; c.beginPath(); c.ellipse(p.r * .3, -p.r * .3, p.r * .4, p.r * .22, 0, 0, TAU); c.fill();
-          c.restore(); break;
-        }
-        case 'smoke': c.beginPath(); c.arc(p.x, p.y, p.r * (1 + k * 1.2), 0, TAU); c.fill(); break;
-        case 'leaf': {
-          c.save(); c.translate(p.x + Math.sin(p.t * 7 + p.rot) * 6, p.y); c.rotate(p.rot);
-          c.beginPath(); c.ellipse(0, 0, p.r, p.r * .45, 0, 0, TAU); c.fill();
-          c.strokeStyle = 'rgba(0,0,0,.2)'; c.lineWidth = .8; c.beginPath(); c.moveTo(-p.r, 0); c.lineTo(p.r, 0); c.stroke();
-          c.restore(); break;
-        }
-        case 'crumb': c.save(); c.translate(p.x, p.y); c.rotate(p.rot); c.fillRect(-p.r / 2, -p.r * .35, p.r, p.r * .7); c.restore(); break;
-        case 'pixel': c.fillRect(Math.round(p.x / 3) * 3, Math.round(p.y / 3) * 3, p.r, p.r); break;
-        case 'bolt': {
-          c.save(); c.globalCompositeOperation = 'lighter'; c.strokeStyle = p.color; c.lineWidth = 2.2; c.lineCap = 'round';
-          const a = Math.atan2(p.vy, p.vx), L = p.r * 2.2;
-          c.beginPath(); c.moveTo(p.x, p.y);
-          for (let i = 1; i <= 4; i++) c.lineTo(p.x - Math.cos(a) * L * i / 4 + rnd(-4, 4), p.y - Math.sin(a) * L * i / 4 + rnd(-4, 4));
-          c.stroke(); c.strokeStyle = '#FFFFFF'; c.lineWidth = .8; c.stroke();
-          c.restore(); break;
-        }
-        case 'glass': c.save(); c.translate(p.x, p.y); c.rotate(p.rot); c.strokeStyle = p.color; c.lineWidth = 1.6; c.beginPath(); c.moveTo(-p.r, 0); c.lineTo(p.r, p.r * .3); c.stroke(); c.restore(); break;
-        case 'ember': {
-          c.save(); c.globalCompositeOperation = 'lighter';
-          c.globalAlpha *= .6 + .4 * Math.sin(p.t * 30 + p.r * 9);
-          c.beginPath(); c.arc(p.x, p.y, p.r * 2.4, 0, TAU); c.globalAlpha *= .3; c.fill(); c.globalAlpha /= .3;
-          c.beginPath(); c.arc(p.x, p.y, p.r, 0, TAU); c.fill();
-          c.restore(); break;
-        }
-        case 'blob': {
-          const st = clamp(Math.abs(p.vy) / 700, 0, .5);
-          c.beginPath(); c.ellipse(p.x, p.y, p.r * (1 - st * .4), p.r * (1 + st), 0, 0, TAU); c.fill();
-          c.fillStyle = 'rgba(255,255,255,.55)'; c.beginPath(); c.arc(p.x - p.r * .3, p.y - p.r * .35, p.r * .28, 0, TAU); c.fill();
-          break;
-        }
-        case 'star4': c.save(); c.globalCompositeOperation = 'lighter'; star4(c, p.x, p.y, p.r * (1 - k * .7) * (.7 + .3 * Math.sin(p.t * 20))); c.fill(); c.restore(); break;
-        case 'coin': {
-          const w = Math.abs(Math.cos(p.t * 11 + p.rot));
-          c.beginPath(); c.ellipse(p.x, p.y, Math.max(.5, p.r * w), p.r, 0, 0, TAU); c.fill();
-          c.lineWidth = 1.2; c.strokeStyle = '#B8860B'; c.stroke();
-          if (w > .4) { c.fillStyle = 'rgba(255,255,230,.7)'; c.beginPath(); c.ellipse(p.x - p.r * .25 * w, p.y - p.r * .3, p.r * .25 * w, p.r * .2, 0, 0, TAU); c.fill(); }
-          break;
-        }
-        case 'tri': c.save(); c.translate(p.x, p.y); c.rotate(p.rot); c.beginPath(); c.moveTo(0, -p.r); c.lineTo(p.r * .87, p.r * .5); c.lineTo(-p.r * .87, p.r * .5); c.closePath(); c.fill(); c.restore(); break;
-        case 'bubble': c.strokeStyle = p.color; c.lineWidth = 1.3; c.beginPath(); c.arc(p.x, p.y, p.r, 0, TAU); c.stroke(); break;
-        case 'puff': c.globalAlpha = .85 * (1 - k); c.beginPath(); c.arc(p.x, p.y, p.r * (1 + k * 1.6), 0, TAU); c.fill(); break;
-        case 'firefly': {
-          c.save(); c.globalCompositeOperation = 'lighter';
-          const bl = .4 + .6 * Math.abs(Math.sin(p.t * 9 + p.r * 5));
-          c.globalAlpha = (1 - k) * bl * .35; c.beginPath(); c.arc(p.x, p.y, p.r * 3, 0, TAU); c.fill();
-          c.globalAlpha = (1 - k) * bl; c.beginPath(); c.arc(p.x, p.y, p.r, 0, TAU); c.fill();
-          c.restore(); break;
-        }
-        case 'flake': {
-          c.save(); c.translate(p.x, p.y); c.rotate(p.rot); c.strokeStyle = p.color; c.lineWidth = 1.3; c.lineCap = 'round';
-          c.beginPath(); for (let i = 0; i < 3; i++) { const a = i * Math.PI / 3; c.moveTo(-Math.cos(a) * p.r, -Math.sin(a) * p.r); c.lineTo(Math.cos(a) * p.r, Math.sin(a) * p.r); } c.stroke();
-          c.restore(); break;
-        }
-        default: c.save(); c.translate(p.x, p.y); c.rotate(p.rot); c.scale(1, Math.cos(p.t * 9)); c.fillRect(-p.r / 2, -p.r / 3, p.r, p.r / 1.5); c.restore();
-      }
-    }
-    c.globalAlpha = 1;
+    HB.fx.draw(c, parts, time);
     for (const f of floats) {
       const p = f.t / f.life;
       c.save();
@@ -824,6 +752,8 @@
   function drawDragged(c) {
     if (!drag) return;
     const pc = pieceAt(drag.i); if (!pc) return;
+    const tr = HB.fx.trails[HB.profile.trail];
+    if (tr && tr.draw && drag.hist) tr.draw(c, drag.hist, time);
     const sc = Math.max(0, pc.sc), cs = Math.cos(pc.rot), sn = Math.sin(pc.rot);
     c.fillStyle = 'rgba(0,0,0,.28)';
     for (const [ox, oy] of pc.offs) { hexPath(c, pc.x + (ox * cs - oy * sn) * sc + 5, pc.y + (ox * sn + oy * cs) * sc + 12, S * sc * .93, pc.rot); c.fill(); }

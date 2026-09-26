@@ -212,35 +212,64 @@
     try { window.HexAndroid.checkUpdate(true); } catch (e) { $('#upd-status').textContent = 'Проверка доступна только в приложении.'; }
   });
 
-  /* ---------- скины ---------- */
+  /* ---------- магазин: скины, звуки, следы, взрывы ---------- */
+  const CATS = {
+    skins: { list: () => HB.skins.list, owned: 'owned', cur: 'skin', hint: 'Мёд дают за каждую партию: чем больше счёт и линий, тем больше мёда.' },
+    sounds: { list: () => HB.fx.SOUNDS, owned: 'ownedSounds', cur: 'sound', hint: 'Набор меняет все музыкальные звуки игры. Нажми «Послушать», чтобы оценить до покупки.' },
+    trails: { list: () => HB.fx.TRAILS, owned: 'ownedTrails', cur: 'trail', hint: 'След тянется за фигурой, пока ты её держишь.' },
+    bursts: { list: () => HB.fx.BURSTS, owned: 'ownedBursts', cur: 'burst', hint: 'Так сгорают линии. «Как у скина» оставляет родной эффект выбранного скина.' }
+  };
+  let shopTab = 'skins';
   const pending = { id: null, tm: 0 };
+  $$('#shop-tabs button').forEach(b => tap(b, () => {
+    if (shopTab === b.dataset.tab) return;
+    shopTab = b.dataset.tab; pending.id = null;
+    HB.sfx.click(); HB.haptic('tick');
+    renders.shop();
+    $('#shop').scrollTop = 0;
+  }));
   renders.shop = () => {
-    $('#s-honey').textContent = U.fmt(HB.profile.honey);
+    const cat = CATS[shopTab], p = HB.profile;
+    $$('#shop-tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === shopTab));
+    $('#s-honey').textContent = U.fmt(p.honey);
+    $('#shop-hint').textContent = cat.hint;
     const grid = $('#skin-grid');
-    grid.innerHTML = HB.skins.list.map(s => {
-      const owned = HB.profile.owned.includes(s.id), cur = HB.profile.skin === s.id;
-      const label = cur ? 'Выбран' : owned ? 'Выбрать' : pending.id === s.id ? `Купить за ${s.price}?` : `${s.price} <i class="honey"></i>`;
+    grid.innerHTML = cat.list().map(s => {
+      const owned = (p[cat.owned] || []).includes(s.id), cur = p[cat.cur] === s.id;
+      const label = cur ? 'Выбрано' : owned ? 'Выбрать' : pending.id === s.id ? `Купить за ${s.price}?` : `${s.price} <i class="honey"></i>`;
+      const sub = shopTab === 'skins' ? `<small class="tier t-${HB.skins.tier(s.price).length}">${HB.skins.tier(s.price)}</small>` : `<small class="desc">${s.desc}</small>`;
       return `<div class="skin ${cur ? 'current' : ''} ${owned ? 'owned' : ''}" data-id="${s.id}">
         <canvas width="240" height="150"></canvas>
-        <div class="skin-meta"><b>${s.name}</b><small class="tier t-${HB.skins.tier(s.price).length}">${HB.skins.tier(s.price)}</small></div>
-        <button class="skin-btn ${cur ? 'cur' : owned ? 'own' : pending.id === s.id ? 'confirm' : 'buy'}">${label}</button>
+        <div class="skin-meta"><b>${s.name}</b>${sub}</div>
+        ${shopTab === 'sounds' ? '<button class="listen" type="button">▶ Послушать</button>' : ''}
+        <button class="skin-btn ${cur ? 'cur' : owned ? 'own' : pending.id === s.id ? 'confirm' : 'buy'}" type="button">${label}</button>
       </div>`;
     }).join('');
     grid.querySelectorAll('.skin').forEach(el => {
-      HB.skins.preview(el.querySelector('canvas'), HB.skins.get(el.dataset.id));
-      tap(el.querySelector('.skin-btn'), () => skinAction(el.dataset.id, el));
+      const id = el.dataset.id, cv = el.querySelector('canvas');
+      if (shopTab === 'skins') HB.skins.preview(cv, HB.skins.get(id));
+      if (shopTab === 'sounds') soundIcon(cv, id);
+      const ls = el.querySelector('.listen');
+      if (ls) tap(ls, () => {
+        HB.sfx.demo(id); HB.haptic('tick');
+        ls.classList.add('playing'); setTimeout(() => ls.classList.remove('playing'), 1600);
+      });
+      tap(el.querySelector('.skin-btn'), () => buy(id, el));
     });
+    startPreviews();
   };
-  function skinAction(id, el) {
-    const s = HB.skins.get(id), p = HB.profile;
-    if (p.skin === id) return;
-    if (p.owned.includes(id)) {
-      p.skin = id; HB.saveProfile(); HB.sfx.toggle(true); HB.haptic('tick');
+  function buy(id, el) {
+    const cat = CATS[shopTab], p = HB.profile, item = cat.list().find(s => s.id === id);
+    if (!item || p[cat.cur] === id) return;
+    p[cat.owned] = p[cat.owned] || [];
+    if (p[cat.owned].includes(id)) {
+      p[cat.cur] = id; HB.saveProfile(); HB.sfx.toggle(true); HB.haptic('tick');
+      if (shopTab === 'sounds') HB.sfx.demo(id);
       renders.shop(); bounce(document.querySelector(`.skin[data-id="${id}"]`));
       return;
     }
-    if (p.honey < s.price) {
-      const need = s.price - p.honey;
+    if (p.honey < item.price) {
+      const need = item.price - p.honey;
       shakeEl(el); HB.sfx.invalid(); HB.haptic('invalid');
       toast(`Нужно ещё ${need} мёда. Это примерно ${need > 60 ? 'пара партий' : 'одна партия'}`);
       return;
@@ -252,10 +281,124 @@
       return;
     }
     pending.id = null;
-    p.honey -= s.price; p.owned.push(id); p.skin = id; HB.saveProfile();
+    p.honey -= item.price; p[cat.owned].push(id); p[cat.cur] = id; HB.saveProfile();
     HB.sfx.buy(); HB.haptic('buy'); HB.game.confetti(90);
-    toast(`Скин «${s.name}» твой!`);
+    toast(`«${item.name}» теперь твоё!`);
     renders.shop(); bounce(document.querySelector(`.skin[data-id="${id}"]`));
+  }
+
+  /* Иконки звуковых наборов */
+  function soundIcon(cv, id) {
+    const c = cv.getContext('2d'), w = cv.width, h = cv.height, cx = w / 2, cy = h / 2;
+    const g = c.createLinearGradient(0, 0, 0, h); g.addColorStop(0, '#231E52'); g.addColorStop(1, '#141033');
+    c.fillStyle = g; c.fillRect(0, 0, w, h);
+    c.lineCap = 'round'; c.lineJoin = 'round';
+    if (id === 'xylo') {
+      ['#FF6B6B', '#FFB84D', '#FFE45C', '#5EE08A', '#4DC3FF', '#9A7BFF'].forEach((col, i) => {
+        const x = cx - 75 + i * 30, hh = 90 - i * 9;
+        c.fillStyle = col; c.beginPath(); c.roundRect ? c.roundRect(x - 11, cy - hh / 2, 22, hh, 6) : c.rect(x - 11, cy - hh / 2, 22, hh); c.fill();
+        c.fillStyle = 'rgba(255,255,255,.35)'; c.fillRect(x - 7, cy - hh / 2 + 5, 4, hh - 10);
+        c.fillStyle = '#E8E0FF'; c.beginPath(); c.arc(x, cy - hh / 2 + 10, 2.5, 0, Math.PI * 2); c.arc(x, cy + hh / 2 - 10, 2.5, 0, Math.PI * 2); c.fill();
+      });
+    } else if (id === 'glass') {
+      [[-45, 0, 30], [10, -12, 38], [60, 8, 26]].forEach(([dx, dy, r], i) => {
+        const x = cx + dx, y = cy + dy;
+        c.strokeStyle = 'rgba(220,240,255,.5)'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(x, 0); c.lineTo(x, y - r); c.stroke();
+        const bg = c.createLinearGradient(x - r, y - r, x + r, y + r); bg.addColorStop(0, 'rgba(200,235,255,.8)'); bg.addColorStop(1, 'rgba(160,140,255,.35)');
+        c.fillStyle = bg; c.beginPath(); c.moveTo(x - r * .55, y - r * .6); c.quadraticCurveTo(x - r * .6, y + r * .5, x - r, y + r * .6); c.lineTo(x + r, y + r * .6); c.quadraticCurveTo(x + r * .6, y + r * .5, x + r * .55, y - r * .6); c.quadraticCurveTo(x, y - r * 1.1, x - r * .55, y - r * .6); c.fill();
+        c.strokeStyle = 'rgba(255,255,255,.8)'; c.lineWidth = 2; c.stroke();
+        c.fillStyle = 'rgba(255,255,255,.7)'; c.beginPath(); c.ellipse(x - r * .25, y - r * .2, r * .1, r * .35, .2, 0, Math.PI * 2); c.fill();
+      });
+    } else if (id === 'chip') {
+      const P = ['..kkkk..', '..k..k..', '..k..k..', '..k..k..', 'kkk.kkk.', 'kkk.kkk.', '........'];
+      const s = 12, ox = cx - 4 * s, oy = cy - 3.5 * s;
+      P.forEach((row, r) => [...row].forEach((ch, k) => { if (ch === 'k') { c.fillStyle = r % 2 ? '#4DC3FF' : '#5EE08A'; c.fillRect(ox + k * s, oy + r * s, s - 1, s - 1); } }));
+      c.fillStyle = 'rgba(255,255,255,.08)'; for (let y = 0; y < h; y += 3) c.fillRect(0, y, w, 1);
+    } else if (id === 'piano') {
+      const kw = 22, n = 9, x0 = cx - n * kw / 2, y0 = cy - 45;
+      for (let i = 0; i < n; i++) { c.fillStyle = '#F7F4EE'; c.fillRect(x0 + i * kw, y0, kw - 2, 90); c.fillStyle = 'rgba(0,0,0,.08)'; c.fillRect(x0 + i * kw, y0 + 82, kw - 2, 8); }
+      [0, 1, 3, 4, 5, 7].forEach(i => { c.fillStyle = '#1C1830'; c.fillRect(x0 + i * kw + kw * .65, y0, kw * .7, 55); c.fillStyle = 'rgba(255,255,255,.2)'; c.fillRect(x0 + i * kw + kw * .7, y0, 2, 50); });
+    } else {
+      c.fillStyle = '#C0392B'; c.beginPath(); c.ellipse(cx, cy + 20, 58, 16, 0, 0, Math.PI * 2); c.fill();
+      c.fillRect(cx - 58, cy - 20, 116, 40);
+      c.fillStyle = '#E8E4F5'; c.beginPath(); c.ellipse(cx, cy - 20, 58, 16, 0, 0, Math.PI * 2); c.fill();
+      c.strokeStyle = '#F4D35E'; c.lineWidth = 3; for (let i = 0; i < 6; i++) { const x = cx - 55 + i * 22; c.beginPath(); c.moveTo(x, cy - 16); c.lineTo(x + 11, cy + 30); c.stroke(); }
+      c.strokeStyle = '#8B5A2B'; c.lineWidth = 5; c.beginPath(); c.moveTo(cx - 70, cy - 60); c.lineTo(cx - 20, cy - 25); c.moveTo(cx + 70, cy - 60); c.lineTo(cx + 25, cy - 25); c.stroke();
+    }
+  }
+
+  /* Живые превью следов и взрывов */
+  const live = [];
+  let liveRaf = 0, liveLast = 0;
+  function startPreviews() {
+    cancelAnimationFrame(liveRaf); live.length = 0;
+    if (shopTab !== 'trails' && shopTab !== 'bursts') return;
+    document.querySelectorAll('#skin-grid .skin').forEach((el, i) => {
+      const cv = el.querySelector('canvas');
+      live.push({ id: el.dataset.id, cv, c: cv.getContext('2d'), parts: [], splats: [], t: i * .37, st: {}, hist: [], fired: false });
+    });
+    liveLast = performance.now();
+    liveRaf = requestAnimationFrame(tickPreviews);
+  }
+  function previewBg(c, w, h) {
+    const g = c.createLinearGradient(0, 0, 0, h); g.addColorStop(0, '#221D52'); g.addColorStop(1, '#120F2C');
+    c.fillStyle = g; c.fillRect(0, 0, w, h);
+  }
+  function tickPreviews(now) {
+    if ($('#shop').hidden) return;
+    const dt = Math.min(.05, (now - liveLast) / 1000); liveLast = now;
+    HB.skins.tick(0);
+    live.forEach(L => (shopTab === 'trails' ? trailPreview : burstPreview)(L, dt));
+    liveRaf = requestAnimationFrame(tickPreviews);
+  }
+  function trailPreview(L, dt) {
+    const c = L.c, w = L.cv.width, h = L.cv.height, sk = HB.skins.current(), col = sk.colors[3];
+    L.t += dt;
+    const x = w / 2 + Math.cos(L.t * 1.5) * w * .32, y = h / 2 + Math.sin(L.t * 3) * h * .22;
+    const spd = L.px == null ? 0 : Math.hypot(x - L.px, y - L.py) / Math.max(dt, .001);
+    L.px = x; L.py = y;
+    const tr = HB.fx.trails[L.id] || HB.fx.trails.sparks;
+    tr.spawn(p => L.parts.push(p), x, y, 12, spd, dt, col, L.st);
+    L.hist.push({ x, y, t: L.t }); while (L.hist.length && L.t - L.hist[0].t > (tr.keep || .32)) L.hist.shift();
+    L.parts = HB.fx.update(L.parts, dt, h);
+    previewBg(c, w, h);
+    HB.fx.draw(c, L.parts, L.t);
+    if (tr.draw) tr.draw(c, L.hist, L.t);
+    const R = 11, S3 = Math.sqrt(3);
+    [-1, 0, 1].forEach((k, i) => HB.skins.tile(c, x + k * R * S3, y, R * .93, sk.colors[(i + 2) % 6], sk, { v: i * 3 }));
+  }
+  function burstPreview(L, dt) {
+    const c = L.c, w = L.cv.width, h = L.cv.height, sk = HB.skins.current(), cycle = 2.4;
+    L.t += dt;
+    const ph = L.t % cycle, cx = w / 2, cy = h * .58, R = 15, S3 = Math.sqrt(3);
+    const cells = [-2, -1, 0, 1, 2].map(k => [cx + k * R * S3, cy]);
+    if (ph < .6) L.fired = false;
+    if (ph >= .6 && !L.fired) {
+      L.fired = true;
+      const api = {
+        push: p => { if (p.k === 'rocket') { p.vy *= .45; p.sm = .42; p.boom = false; } else { p.vx *= .6; p.vy *= .6; p.g = (p.g || 0) * .6; } L.parts.push(p); },
+        splat: (x, y, color, life = 2.6, scale = 1) => L.splats.push({ x, y, color, t: 0, life: Math.min(life, 2), r: 10 * scale })
+      };
+      const B = HB.fx.bursts[L.id];
+      cells.forEach(([x, y], i) => {
+        const col = sk.colors[i % 6];
+        if (B) B.cell(api, x, y, col, { cx, cy });
+        else if (!HB.skins.breakFx(api, x, y, col, i * 2)) {
+          for (let n = 0; n < 4; n++) api.push({ k: 'shard', x, y, vx: (Math.random() - .5) * 300, vy: -Math.random() * 300, g: 700, t: 0, life: .8, color: col, r: 5, rot: 0, vr: 6 });
+        }
+      });
+      if (B) B.clear(api, cx, cy, { lines: 1, silent: true });
+    }
+    L.parts = HB.fx.update(L.parts, dt, h);
+    L.splats.forEach(s => s.t += dt); L.splats = L.splats.filter(s => s.t < s.life);
+    previewBg(c, w, h);
+    L.splats.forEach(s => { c.globalAlpha = .45 * (1 - s.t / s.life); c.fillStyle = s.color; c.beginPath(); c.arc(s.x, s.y, s.r, 0, Math.PI * 2); c.fill(); });
+    c.globalAlpha = 1;
+    if (ph < .6) {
+      const pop = Math.min(1, ph / .2);
+      cells.forEach(([x, y], i) => HB.skins.tile(c, x, y, R * .93 * (.6 + .4 * pop), sk.colors[i % 6], sk, { v: i * 2, flash: ph > .45 ? (ph - .45) * 4 : 0 }));
+    }
+    HB.fx.draw(c, L.parts, L.t);
   }
 
   /* ---------- свои соты ---------- */
