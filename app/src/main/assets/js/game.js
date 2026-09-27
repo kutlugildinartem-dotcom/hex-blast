@@ -602,7 +602,7 @@
   /* ---------- ромашка ---------- */
   let gifts = [], ascend = null, gifting = false;
   const DAISY_T = 30;
-  const PETAL_NAMES = ['', 'ЛЕПЕСТОК · ПОДАРОК-СОТА', 'ЛЕПЕСТОК · УСИЛЕНИЕ', 'ЛЕПЕСТОК · ИДЕАЛЬНЫЕ ФИГУРЫ', 'ОПЫЛЕНИЕ', 'ВОЗНЕСЕНИЕ'];
+  const PETAL_NAMES = ['', 'ЛЕПЕСТОК · ПОДАРОК-СОТА', 'ЛЕПЕСТОК · УСИЛЕНИЕ', 'ЛЕПЕСТОК · ФИГУРЫ ДЛЯ РОМАШКИ', 'ОПЫЛЕНИЕ', 'ВОЗНЕСЕНИЕ'];
   let tears = 0;
   function tearPetals(c, n) {
     tears += n;
@@ -673,7 +673,7 @@
       else pending.push(type);
       showBanner(PETAL_NAMES[2], '#FFE45C');
     } else if (g.n === 3) {
-      tray = rescuePieces().map((sh, i) => makePiece(i, .2 + i * .12, sh, rand(6)));
+      swapTray(rescuePieces(dc), .2);
       updateFits(); HB.sfx.refill();
       flyTo(dc, 180, TY, '#BFF1FF', 14);
       showBanner(PETAL_NAMES[3], '#BFF1FF');
@@ -840,8 +840,11 @@
    * Три фигуры, которые точно встают одна за другой. Каждая следующая подбирается на поле,
    * где предыдущая уже стоит (с очисткой собранных линий), и лучше всего та, что собирает линии.
    */
-  function rescuePieces() {
+  function rescuePieces(focus = null) {
     const occ = new Set(cells.filter(c => c.ci >= 0).map(c => c.idx));
+    // Ромашки не сгорают, поэтому в прогнозе остаются на месте после очистки ряда.
+    const keep = new Set(cells.filter(c => c.ci >= 0 && c.daisy).map(c => c.idx));
+    const fl = focus ? lines.filter(l => l.includes(focus)) : [];
     const free = (q, r) => { const c = map.get(key(q, r)); return c && !occ.has(c.idx); };
     const out = [], used = new Set();
     for (let n = 0; n < 3; n++) {
@@ -854,18 +857,43 @@
           const put = new Set(shape.map(([dq, dr]) => map.get(key(aq + dq, ar + dr)).idx));
           const done = lines.filter(l => l.every(c => occ.has(c.idx) || put.has(c.idx)));
           // Больше линий — лучше, крупные фигуры чуть ценнее, немного случайности для разнообразия.
-          const sc = done.length * 10 + shape.length * .6 + Math.random() * 2.5;
+          let sc = done.length * 10 + shape.length * .6 + Math.random() * 2.5;
+          if (focus) {
+            // Для ромашки: главное — закрыть ряд через неё, а если не выходит, то приблизить его.
+            sc += done.filter(l => fl.includes(l)).length * 60;
+            for (const l of fl) sc += l.filter(c => put.has(c.idx)).length * 4 * (1 + l.filter(c => occ.has(c.idx)).length / l.length);
+          }
           if (!best || sc > best.sc) best = { sc, si, shape, put, done };
         }
       });
       if (!best) break;
       used.add(best.si);
       best.put.forEach(i => occ.add(i));
-      best.done.forEach(l => l.forEach(c => occ.delete(c.idx)));
+      best.done.forEach(l => l.forEach(c => { if (!keep.has(c.idx)) occ.delete(c.idx); }));
       out.push(best.shape);
     }
     while (out.length < 3) out.push([[0, 0]]);
     return out;
+  }
+  /**
+   * Новый лоток вместо старого: особые соты со старых фигур переезжают на новые,
+   * каждая на фигуру в том же слоте (или на ближайшую свободную), ничего не теряется.
+   */
+  const SPEC = ['bomb', 'bolt', 'fire', 'ice', 'sun', 'daisy'];
+  function swapTray(shapes, delay0) {
+    const carry = [];
+    tray.forEach((p, i) => { if (p) SPEC.forEach(k => { if (p[k] >= 0) carry.push({ k, slot: i }); }); });
+    const next = shapes.map((sh, i) => makePiece(i, delay0 + i * .12, sh, rand(6)));
+    const busy = p => SPEC.filter(k => p[k] >= 0).map(k => p[k]);
+    carry.forEach(({ k, slot }) => {
+      const order = [slot, 0, 1, 2].filter((v, j, a) => a.indexOf(v) === j);
+      const p = order.map(i => next[i]).find(p => p && p[k] < 0 && busy(p).length < p.shape.length) || null;
+      if (!p) { if (k !== 'daisy') pending.push(k); return; }
+      const freeIdx = p.shape.map((_, j) => j).filter(j => !busy(p).includes(j));
+      p[k] = freeIdx[rand(freeIdx.length)];
+    });
+    tray = next;
+    if (carry.length) parts.push({ k: 'flash', x: 180, y: TY, vx: 0, vy: 0, t: 0, life: .35, color: '#FFFFFF', r: 60, soft: true });
   }
   /** Второй шанс: вместо конца игры фигуры в лотке меняются на подходящие. */
   function undo() {
@@ -874,8 +902,7 @@
     undoCharges--; snap = null;
     mode = 'play'; endT = 0; inputOn = true;
     cells.forEach(c => { c.gt = -1; });
-    const shapes = rescuePieces();
-    tray = shapes.map((sh, i) => makePiece(i, .15 + i * .12, sh, rand(6)));
+    swapTray(rescuePieces(), .15);
     updateFits();
     HB.sfx.undo(); HB.sfx.refill(); HB.haptic('undo');
     showBanner('ВТОРОЙ ШАНС!', SKY);
@@ -927,7 +954,7 @@
     { id: 'binary', g: ['sun'], need: ['sun'], name: 'Двойная звезда', desc: 'Луч задел другое солнце, и между ними вспыхивает мост света.', set: s => { s.row(); s.put(-3, 0, 'sun', 2); s.put(-2, -2, 'sun', 1); s.fill(14); } },
     { id: 'daisy1', g: ['daisy'], need: ['daisy'], len: 4.6, name: 'Ромашка: 1-й лепесток', desc: 'Ряд сгорел, а ромашка осталась. Лепесток отрывается, и цветок дарит соту, которая закроет ряд.', set: s => { s.row(); s.put(2, 0, 'daisy', 5); [-3, -2, -1, 0, 1, 3, 4].forEach(q => s.put(q, -1, 'ci')); s.region((q, r) => r >= 2, 12); } },
     { id: 'daisy2', g: ['daisy'], need: ['daisy'], len: 4.2, name: 'Ромашка: 2-й лепесток', desc: 'Второй лепесток превращает одну из твоих фигур в особую.', piece2: true, set: s => { s.row(); s.put(2, 0, 'daisy', 4); s.fill(14); } },
-    { id: 'daisy3', g: ['daisy'], need: ['daisy'], len: 4.2, name: 'Ромашка: 3-й лепесток', desc: 'Третий лепесток меняет фигуры на идеальные: они точно встанут и помогут собрать линии.', set: s => { s.row(); s.put(2, 0, 'daisy', 3); s.fill(18); } },
+    { id: 'daisy3', g: ['daisy'], need: ['daisy'], len: 4.6, piece2: true, spec2: 'bomb', name: 'Ромашка: 3-й лепесток', desc: 'Третий лепесток меняет фигуры на те, что помогут ромашке расцвести: они закрывают ряды через неё. Особые соты со старых фигур переезжают на новые.', set: s => { s.row(); s.put(2, 0, 'daisy', 3); s.fill(18); } },
     { id: 'daisy4', g: ['daisy'], need: ['daisy'], len: 4.4, name: 'Ромашка: опыление', desc: 'Четвёртый лепесток: пыльца летит ко всем сотам самого частого цвета, они расцветают и исчезают.', set: s => { s.row(); s.put(2, 0, 'daisy', 2); s.fill(28); } },
     { id: 'daisy5', g: ['daisy'], need: ['daisy'], len: 5.6, name: 'Ромашка: вознесение', desc: 'Пятый лепесток: вихрь лепестков, цветок возносится в столбе света, и всё поле очищается.', set: s => { s.row(); s.put(2, 0, 'daisy', 1); s.fill(30); } },
     { id: 'chaos', g: ['multi'], need: ['bolt', 'bomb', 'ice'], len: 5.2, name: 'Стихийный хаос', desc: 'Три разные стихии в одной цепочке: очки ×2, радужные волны и замедление.', piece: 'bolt', set: s => { s.row(); s.put(2, 0, 'bomb'); s.put(-2, 0, 'ice'); s.fill(14); } },
@@ -953,6 +980,7 @@
     tray = [makePiece(0, 0, [[0, 0]], 3, sp === 'bomb' ? 0 : -1, null, sp === 'bolt' ? 0 : -1, sp === 'fire' ? 0 : -1, sp === 'ice' ? 0 : -1, sp === 'sun' ? 0 : -1), null, null];
     tray[0].delay = 0; hold = null;
     if (cb.piece2) { tray[1] = makePiece(1, 0, [[0, 0], [1, 0], [0, 1]], 1); tray[2] = makePiece(2, 0, [[0, 0], [1, 0]], 4); }
+    if (cb.spec2) tray[2][cb.spec2] = 0;
     score = 0; shown = 0; combo = 0; miss = 0; pending = [];
     updateFits();
   }
@@ -2017,7 +2045,7 @@
       drag = ghost = preview = boltPreview = null;
     },
     _score: () => score,
-    _tears: () => tears,
+    _tears: () => tears, _tray: () => tray,
     COMBOS, startDemo, endDemo, demoCtl, demoProgress, _probe: probeCombo
   };
   window.hbSave = save;
