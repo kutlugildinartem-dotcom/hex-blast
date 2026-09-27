@@ -513,22 +513,26 @@
     },
     /**
      * Разрыв салюта издалека: мягкий гулкий удар с эхом, а следом — потрескивание
-     * горящих звёздочек: множество крошечных приглушённых щелчков, которые редеют.
+     * горящих звёздочек. Хлопки с «телом» (20–50 мс, низко-средние частоты) идут
+     * плотными пачками и редеют, под ними низкое шипение — без писка и щелчков.
      */
-    firework(x = 180) {
+    firework(x = 180, n = 1) {
       if (!ready()) return; const t = now(), pan = Math.max(-.7, Math.min(.7, (x - 180) / 180 * .7));
-      noiseHit(t, { vol: .32, dur: 1.1, freq: 700, to: 90, type: 'lowpass', q: .5, rev: .9, attack: .006, pan });
-      thud(t, { vol: .42, from: 75, to: 32, dur: .8 });
-      const n = 45 + Math.floor(Math.random() * 20);
-      for (let i = 0; i < n; i++) {
-        const k = Math.pow(Math.random(), 1.6);
-        noiseHit(t + .35 + k * 1.4, {
-          vol: .018 + Math.random() * .03 * (1 - k * .6), dur: .004 + Math.random() * .008,
-          freq: 1400 + Math.random() * 2200, type: 'bandpass', q: 1.4, rev: .5, attack: .001,
-          pan: Math.max(-1, Math.min(1, pan + Math.random() * 1.2 - .6))
-        });
+      const lv = 1 / Math.sqrt(Math.max(1, n));
+      noiseHit(t, { vol: .34 * lv, dur: 1.2, freq: 600, to: 80, type: 'lowpass', q: .5, rev: .9, attack: .006, pan });
+      thud(t, { vol: .45 * lv, from: 72, to: 30, dur: .9 });
+      const groups = 7 + Math.floor(Math.random() * 5);
+      for (let g = 0; g < groups; g++) {
+        const k = Math.pow(Math.random(), 1.3), gt = t + .38 + k * 1.5, gpan = Math.max(-1, Math.min(1, pan + Math.random() * 1.2 - .6));
+        const size = 3 + Math.floor(Math.random() * 4);
+        for (let i = 0; i < size; i++) {
+          noiseHit(gt + i * (.018 + Math.random() * .035), {
+            vol: (.03 + Math.random() * .04) * (1 - k * .55) * lv, dur: .02 + Math.random() * .03,
+            freq: 380 + Math.random() * 850, type: 'bandpass', q: .9, rev: .55, attack: .002, pan: gpan
+          });
+        }
       }
-      noiseHit(t + .3, { vol: .018, dur: 1.4, freq: 3200, type: 'bandpass', q: .8, rev: .6, attack: .25, pan });
+      noiseHit(t + .32, { vol: .03 * lv, dur: 1.6, freq: 900, to: 500, type: 'bandpass', q: .7, rev: .7, attack: .3, pan });
     },
     /** Цветение: мягкий взлёт воздуха и три стеклянных колокольчика. */
     bloom() {

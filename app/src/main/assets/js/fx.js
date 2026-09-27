@@ -99,7 +99,7 @@
         }
         for (let i = 0; i < 12; i++) out.push({ k: 'star4', x: p.x + rnd(-40, 40) * (p.sm || 1), y: p.y + rnd(-40, 40) * (p.sm || 1), vx: 0, vy: 30, g: 0, t: -rnd(.25, .7), life: .45, color: p.cols[i % p.cols.length], r: rnd(3, 6) });
         out.push({ k: 'flash', x: p.x, y: p.y, vx: 0, vy: 0, t: 0, life: .3, color: p.cols[0], r: 55 * (p.sm || 1), soft: true });
-        if (p.boom && HB.sfx.firework) HB.sfx.firework(p.x);
+        if (p.boom && HB.sfx.firework) HB.sfx.firework(p.x, p.salvo || 1);
         continue;
       }
       if (p.t < p.life && p.y < H + 60) out.push(p);
@@ -619,10 +619,11 @@
         for (let i = 0; i < 5; i++) { const a = rnd(0, TAU), v = rnd(60, 150); api.push({ k: 'trailspark', x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 60, g: 200, t: 0, life: rnd(.5, .8), color, r: rnd(1.3, 2) }); }
       },
       clear(api, cx, cy, info) {
-        const n = Math.min(4, 1 + (info.lines || 1));
+        const L = info.lines || 1;
+        const n = L >= 2 ? Math.min(5, 4 + (L >= 3 || Math.random() < .4 ? 1 : 0)) : (Math.random() < .4 ? 3 : 2);
         for (let i = 0; i < n; i++) {
           const c0 = Math.floor(Math.random() * RAINBOW.length), cols = [RAINBOW[c0], RAINBOW[(c0 + 2) % RAINBOW.length], RAINBOW[(c0 + 4) % RAINBOW.length]];
-          api.push({ k: 'rocket', x: cx + rnd(-50, 50), y: cy + 20, vx: rnd(-50, 50), vy: -rnd(420, 560), g: 320, t: -i * .18, life: rnd(.55, .75), cols, r: 2.2, boom: !info.silent });
+          api.push({ k: 'rocket', x: cx + rnd(-50, 50), y: cy + 20, vx: rnd(-50, 50), vy: -rnd(420, 560), g: 320, t: -i * .18, life: rnd(.55, .75), cols, r: 2.2, boom: !info.silent, salvo: n });
         }
         if (!info.silent) HB.sfx.launch(n);
       }
