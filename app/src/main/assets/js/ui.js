@@ -298,7 +298,6 @@
     HB.settings[i.dataset.set] = i.checked;
     HB.saveSettings();
     if (i.dataset.set === 'sound') { HB.sfx.setVolume(); HB.sfx.unlock(); }
-    if (i.dataset.set === 'sound' || i.dataset.set === 'music') { if (HB.settings.sound && HB.settings.music) HB.music.play(); else HB.music.stop(); }
     HB.sfx.toggle(i.checked); HB.haptic('tick');
     HB.game.refreshSettings();
     syncSettings();
@@ -309,7 +308,6 @@
     HB.saveSettings();
     syncSettings();
     HB.sfx.click();
-    if (k === 'track') HB.music.play(v);
     if (k === 'haptics') HB.haptic(v >= 3 ? 'bomb' : 'clear', 8, 1 | (2 << 8));
     else if (k === 'special' && v !== 'bomb') { HB.sfx.thunder(); HB.haptic('thunder'); }
     else HB.haptic('tick');

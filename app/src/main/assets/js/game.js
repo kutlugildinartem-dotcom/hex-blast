@@ -602,8 +602,10 @@
   /* ---------- ромашка ---------- */
   let gifts = [], ascend = null, gifting = false;
   const DAISY_T = 30;
-  const PETAL_NAMES = ['', 'ЛЕПЕСТОК · ПОДАРОК-СОТА', 'ЛЕПЕСТОК · УСИЛЕНИЕ', 'ЛЕПЕСТОК · ИДЕАЛЬНЫЕ ФИГУРЫ', 'ЛЕПЕСТКОВЫЙ ВИХРЬ', 'ВОЗНЕСЕНИЕ'];
+  const PETAL_NAMES = ['', 'ЛЕПЕСТОК · ПОДАРОК-СОТА', 'ЛЕПЕСТОК · УСИЛЕНИЕ', 'ЛЕПЕСТОК · ИДЕАЛЬНЫЕ ФИГУРЫ', 'ОПЫЛЕНИЕ', 'ВОЗНЕСЕНИЕ'];
+  let tears = 0;
   function tearPetals(c, n) {
+    tears += n;
     for (let k = 0; k < n && c.dPet > 0; k++) {
       c.dPet--;
       const num = 5 - c.dPet;
@@ -665,7 +667,7 @@
       gifts.push({ drop: e, t: .38 });
       showBanner(PETAL_NAMES[1], '#FFF3B0');
     } else if (g.n === 2) {
-      const types = specials().filter(k => k !== 'daisy'), type = types.length ? types[rand(types.length)] : 'bomb';
+      const types = ['bomb', 'bolt', 'fire', 'ice', 'sun'], type = types[rand(types.length)];
       const cand = [...tray, hold].filter(p => p && !pieceHasSpecial(p));
       if (cand.length) { const p = cand[rand(cand.length)]; p[type] = rand(p.shape.length); flyTo(dc, p.x, p.y, '#FFE45C', 10); p.sc *= 1.25; }
       else pending.push(type);
@@ -676,12 +678,21 @@
       flyTo(dc, 180, TY, '#BFF1FF', 14);
       showBanner(PETAL_NAMES[3], '#BFF1FF');
     } else if (g.n === 4) {
-      const zone = cells.filter(c => c !== dc && c.ci >= 0 && cdist(c, dc) <= 2 && !c.bomb && !c.fire && !c.ice && !c.sun && !c.daisy);
-      for (let i = 0; i < 26; i++) { const a = i / 26 * TAU; parts.push({ k: 'petal', x: dc.x + Math.cos(a) * 20, y: dc.y + Math.sin(a) * 20, vx: -Math.sin(a) * 160 + Math.cos(a) * 60, vy: Math.cos(a) * 160 + Math.sin(a) * 60, g: 0, t: 0, life: rnd(.9, 1.4), color: i % 3 ? '#FFFFFF' : '#FFF3B0', r: rnd(2.5, 4), rot: rnd(0, TAU), vr: rnd(-8, 8), soft: true }); }
-      rings.push({ x: dc.x, y: dc.y, t: 0, color: '#FFFFFF', big: true });
-      sweep(zone, dc.x, dc.y, 20, 300);
-      HB.sfx.whirl(); shake = Math.max(shake, 10);
-      showBanner(PETAL_NAMES[4], '#FFFFFF');
+      // Опыление: пыльца разлетается ко всем сотам самого частого цвета, они расцветают и исчезают.
+      const cnt = {}; cells.forEach(c => { if (c.ci >= 0 && c !== dc && !c.bomb && !c.fire && !c.ice && !c.sun && !c.daisy) cnt[c.ci] = (cnt[c.ci] || 0) + 1; });
+      const ci = +Object.keys(cnt).sort((x, y) => cnt[y] - cnt[x])[0];
+      const zone = cells.filter(c => c !== dc && c.ci === ci && !c.bomb && !c.fire && !c.ice && !c.sun && !c.daisy);
+      const col = colorOf(ci);
+      zone.forEach((c, i) => {
+        const d = .35 + Math.hypot(c.x - dc.x, c.y - dc.y) / 700;
+        parts.push({ k: 'glow', soft: true, x: dc.x, y: dc.y - 20, vx: (c.x - dc.x) / d, vy: (c.y - dc.y + 20) / d, g: 0, t: 0, life: d, color: 'rgba(255,225,120,.9)', r: 2.5 });
+        parts.push({ k: 'bloom', x: c.x, y: c.y, vx: 0, vy: 0, g: 0, t: -d, life: 1, color: col, r: 16, rot: rnd(0, TAU) });
+        for (let j = 0; j < 3; j++) parts.push({ k: 'petal', x: c.x, y: c.y, vx: 0, vy: rnd(-70, -20), g: 70, t: -d - .45, life: rnd(1, 1.5), color: j % 2 ? col : '#FFFFFF', r: rnd(2.5, 4), rot: rnd(0, TAU), vr: rnd(-3, 3), soft: true });
+      });
+      sweep(zone, dc.x, dc.y, 20, 700);
+      zone.forEach(c => { if (c.fx) c.fx.delay += .35; });
+      HB.sfx.pollen(); HB.haptic('combo');
+      showBanner(PETAL_NAMES[4] + ' · ' + zone.length, '#FFE45C');
     } else if (g.n === 5) {
       ascend = { x: dc.x, y: dc.y, t: 0, cell: dc, swept: false };
       dc.daisy = false; dc.dAsc = false; dc.ci = -1;
@@ -699,8 +710,8 @@
       if (c.dT <= 0) {
         // Завяла: лепестки буреют и опадают, сота остаётся обычной.
         c.daisy = false;
-        for (let i = 0; i < c.dPet; i++) parts.push({ k: 'petal', x: c.x + rnd(-6, 6), y: c.y, vx: rnd(-20, 20), vy: rnd(0, 20), g: 60, t: -i * .12, life: rnd(1.2, 1.8), color: '#C9B48E', r: rnd(2.5, 3.5), rot: rnd(0, TAU), vr: rnd(-2, 2), soft: true });
-        parts.push({ k: 'puff', x: c.x, y: c.y, vx: 0, vy: -10, g: 0, t: 0, life: .8, color: 'rgba(150,140,120,.5)', r: 10 });
+        for (let i = 0; i < c.dPet; i++) parts.push({ k: 'petal', x: c.x + rnd(-6, 6), y: c.y, vx: rnd(40, 90), vy: rnd(-70, -30), g: -10, t: -i * .12, life: rnd(1.6, 2.2), color: '#FFFBEA', r: rnd(2.5, 3.5), rot: rnd(0, TAU), vr: rnd(-4, 4), soft: true });
+        for (let i = 0; i < 6; i++) parts.push({ k: 'glow', soft: true, x: c.x, y: c.y, vx: rnd(20, 70), vy: rnd(-60, -10), g: 0, t: -rnd(0, .3), life: rnd(1, 1.6), color: 'rgba(255,245,200,.8)', r: rnd(1, 1.8) });
         HB.sfx.daisyWilt();
       }
     });
@@ -712,10 +723,14 @@
     }
     if (ascend) {
       const a = ascend; a.t += dt;
-      if (a.t > .9 && !a.beam) { a.beam = true; sunBeams.push({ kind: 'sky', x: a.x, y: a.y - 60, t: 0, life: 1.9, w: 14 }); }
+      if (a.t > .9 && !a.beam) { a.beam = true; sunBeams.push({ kind: 'sky', x: a.x, y: a.y - 60, t: 0, life: 2.4, w: 18 }); }
+      // Со всего поля к цветку поднимаются искры света.
+      if (!a.swept && Math.random() < dt * 40) { const c0 = cells[rand(cells.length)]; parts.push({ k: 'star4', soft: true, x: c0.x, y: c0.y, vx: (a.x - c0.x) * .5, vy: (a.y - 80 - c0.y) * .5, g: 0, t: 0, life: rnd(1, 1.5), color: Math.random() < .5 ? '#FFFFFF' : '#FFE9A0', r: rnd(1.5, 3) }); }
+      if (a.swept && a.t < 3.6 && Math.random() < dt * 30) parts.push({ k: 'star4', soft: true, x: rnd(10, 350), y: -10, vx: rnd(-10, 10), vy: rnd(40, 90), g: 0, t: 0, life: rnd(2, 3), color: '#FFE9A0', r: rnd(1.5, 3) });
       if (a.t > 1.55 && !a.swept) {
         a.swept = true;
-        whiteFlash = 1.6; flashTint = '255,255,250';
+        whiteFlash = 1.8; flashTint = '255,252,235';
+        [0, .12, .26, .42].forEach((d, i) => rings.push({ x: a.x, y: a.y - 70, t: -d, color: i % 2 ? '#FFE9A0' : '#FFFFFF', big: true, huge: true }));
         const all = cells.filter(c => c.ci >= 0);
         sweep(all, a.x, a.y, 25, 420);
         score += 500; stat.clears++;
@@ -725,7 +740,7 @@
         showBanner('ПОЛЕ ОЧИЩЕНО', '#FFF3B0');
         if (mode !== 'demo') { if (score > best) { best = score; HB.setBest(best); } save(); }
       }
-      if (a.t > 3) ascend = null;
+      if (a.t > 4) ascend = null;
     }
   }
   /** Ромашка на соте: пять лепестков по кругу, жёлтая серединка, кольцо таймера. */
@@ -774,19 +789,36 @@
   }
   function drawAscend(c) {
     const a = ascend; if (!a) return;
-    const k = clamp(a.t / 1.6), rise = eo(k) * 80, y = a.y - rise, fade = clamp((a.t - 1.3) / .5);
+    const k = clamp(a.t / 1.6), rise = eo(k) * 80, y = a.y - rise, fade = clamp((a.t - 1.3) / .5), after = clamp((a.t - 1.6) / 2.4);
+    const lightA = a.t < 1.6 ? k : 1 - after;
+    // Мир затихает: поле темнеет перед вспышкой.
+    if (a.t < 1.7) { c.fillStyle = `rgba(6,4,20,${.5 * k * (1 - fade)})`; c.fillRect(0, 0, 360, H); }
     c.save(); c.globalCompositeOperation = 'lighter';
-    const halo = c.createRadialGradient(a.x, y, 0, a.x, y, 70 + 40 * k);
-    halo.addColorStop(0, `rgba(255,255,240,${.7 * k})`); halo.addColorStop(1, 'rgba(255,255,240,0)');
-    c.fillStyle = halo; c.beginPath(); c.arc(a.x, y, 110, 0, TAU); c.fill(); c.restore();
-    // Лепестки кружатся вихрем и поднимаются вместе с цветком.
-    for (let j = 0; j < 5; j++) {
-      const an = a.t * (4 + a.t * 3) + j * TAU / 5, r = 30 + 14 * Math.sin(a.t * 3 + j) + fade * 60;
-      const px = a.x + Math.cos(an) * r, py = y + Math.sin(an) * r * .45;
-      c.save(); c.globalAlpha = 1 - fade * .8; c.translate(px, py); c.rotate(an); c.fillStyle = '#FFFFFF'; c.beginPath(); c.ellipse(0, 0, 7, 3, 0, 0, TAU); c.fill(); c.restore();
+    // Божественные лучи: медленно вращаются от цветка во все стороны.
+    c.save(); c.translate(a.x, y); c.rotate(a.t * .35);
+    for (let i = 0; i < 18; i++) {
+      const an = i * TAU / 18, len = 420 * (.5 + .5 * k), w = i % 2 ? .06 : .1;
+      const g = c.createLinearGradient(0, 0, Math.cos(an) * len, Math.sin(an) * len);
+      g.addColorStop(0, `rgba(255,${i % 2 ? 236 : 250},${i % 2 ? 170 : 230},${.32 * lightA})`); g.addColorStop(1, 'rgba(255,240,200,0)');
+      c.fillStyle = g; c.beginPath(); c.moveTo(0, 0); c.lineTo(Math.cos(an - w) * len, Math.sin(an - w) * len); c.lineTo(Math.cos(an + w) * len, Math.sin(an + w) * len); c.closePath(); c.fill();
     }
-    if (fade < 1) { c.save(); c.globalAlpha = 1 - fade; drawDaisy(c, a.x, y, S * (1 + .5 * k), time, 0, DAISY_T, false); c.restore(); }
-    if (fade > 0) { c.save(); c.globalCompositeOperation = 'lighter'; const w = c.createRadialGradient(a.x, y, 0, a.x, y, 40 * fade + 10); w.addColorStop(0, `rgba(255,255,255,${fade})`); w.addColorStop(1, 'rgba(255,255,255,0)'); c.fillStyle = w; c.beginPath(); c.arc(a.x, y, 60, 0, TAU); c.fill(); c.restore(); }
+    c.restore();
+    const halo = c.createRadialGradient(a.x, y, 0, a.x, y, 90 + 50 * k);
+    halo.addColorStop(0, `rgba(255,255,240,${.8 * lightA})`); halo.addColorStop(.4, `rgba(255,236,170,${.35 * lightA})`); halo.addColorStop(1, 'rgba(255,236,170,0)');
+    c.fillStyle = halo; c.beginPath(); c.arc(a.x, y, 140, 0, TAU); c.fill();
+    c.restore();
+    // Нимб над цветком.
+    if (fade < 1) {
+      c.save(); c.globalAlpha = k * (1 - fade); c.strokeStyle = '#FFE9A0'; c.lineWidth = 2.5; c.shadowColor = '#FFE9A0'; c.shadowBlur = 12;
+      c.beginPath(); c.ellipse(a.x, y - S * 1.3 - Math.sin(a.t * 3) * 2, S * .75, S * .22, 0, 0, TAU); c.stroke(); c.restore();
+    }
+    // Лепестки поднимаются спиралью в свет.
+    for (let j = 0; j < 10; j++) {
+      const an = a.t * (3 + a.t * 3) + j * TAU / 10, r = (26 + 12 * Math.sin(a.t * 3 + j)) * (1 - fade * .3) + fade * 90, py = y + Math.sin(an) * r * .4 - fade * 60 - (j % 2) * 12;
+      c.save(); c.globalAlpha = (1 - fade * .85) * (j < 5 ? 1 : .6); c.translate(a.x + Math.cos(an) * r, py); c.rotate(an); c.fillStyle = j % 3 ? '#FFFFFF' : '#FFF3C4'; c.beginPath(); c.ellipse(0, 0, 7, 3, 0, 0, TAU); c.fill(); c.restore();
+    }
+    if (fade < 1) { c.save(); c.globalAlpha = 1 - fade; drawDaisy(c, a.x, y, S * (1 + .6 * k), time, 0, DAISY_T, false); c.restore(); }
+    if (fade > 0 && after < 1) { c.save(); c.globalCompositeOperation = 'lighter'; const w = c.createRadialGradient(a.x, y, 0, a.x, y, 60 * fade + 20); w.addColorStop(0, `rgba(255,255,255,${1 - after})`); w.addColorStop(1, 'rgba(255,255,255,0)'); c.fillStyle = w; c.beginPath(); c.arc(a.x, y, 90, 0, TAU); c.fill(); c.restore(); }
   }
   function startEnding() {
     mode = 'ending'; endT = 0;
@@ -896,7 +928,7 @@
     { id: 'daisy1', g: ['daisy'], need: ['daisy'], len: 4.6, name: 'Ромашка: 1-й лепесток', desc: 'Ряд сгорел, а ромашка осталась. Лепесток отрывается, и цветок дарит соту, которая закроет ряд.', set: s => { s.row(); s.put(2, 0, 'daisy', 5); [-3, -2, -1, 0, 1, 3, 4].forEach(q => s.put(q, -1, 'ci')); s.region((q, r) => r >= 2, 12); } },
     { id: 'daisy2', g: ['daisy'], need: ['daisy'], len: 4.2, name: 'Ромашка: 2-й лепесток', desc: 'Второй лепесток превращает одну из твоих фигур в особую.', piece2: true, set: s => { s.row(); s.put(2, 0, 'daisy', 4); s.fill(14); } },
     { id: 'daisy3', g: ['daisy'], need: ['daisy'], len: 4.2, name: 'Ромашка: 3-й лепесток', desc: 'Третий лепесток меняет фигуры на идеальные: они точно встанут и помогут собрать линии.', set: s => { s.row(); s.put(2, 0, 'daisy', 3); s.fill(18); } },
-    { id: 'daisy4', g: ['daisy'], need: ['daisy'], len: 4.4, name: 'Ромашка: лепестковый вихрь', desc: 'Четвёртый лепесток поднимает вихрь и сметает все соты в двух кольцах вокруг цветка.', set: s => { s.row(); s.put(2, 0, 'daisy', 2); s.fill(28); } },
+    { id: 'daisy4', g: ['daisy'], need: ['daisy'], len: 4.4, name: 'Ромашка: опыление', desc: 'Четвёртый лепесток: пыльца летит ко всем сотам самого частого цвета, они расцветают и исчезают.', set: s => { s.row(); s.put(2, 0, 'daisy', 2); s.fill(28); } },
     { id: 'daisy5', g: ['daisy'], need: ['daisy'], len: 5.6, name: 'Ромашка: вознесение', desc: 'Пятый лепесток: вихрь лепестков, цветок возносится в столбе света, и всё поле очищается.', set: s => { s.row(); s.put(2, 0, 'daisy', 1); s.fill(30); } },
     { id: 'chaos', g: ['multi'], need: ['bolt', 'bomb', 'ice'], len: 5.2, name: 'Стихийный хаос', desc: 'Три разные стихии в одной цепочке: очки ×2, радужные волны и замедление.', piece: 'bolt', set: s => { s.row(); s.put(2, 0, 'bomb'); s.put(-2, 0, 'ice'); s.fill(14); } },
     { id: 'frostsun', g: ['multi'], need: ['ice', 'sun', 'bomb'], len: 5.4, name: 'Мороз + солнце + бомба', desc: 'Призма, термояд и хаос разом: радужные лучи и ядерная вспышка.', set: s => { s.row(); s.put(-3, 0, 'sun', 2); s.put(-3, -1, 'ice'); s.put(-2, -1, 'bomb'); s.fill(18); } },
@@ -1985,6 +2017,7 @@
       drag = ghost = preview = boltPreview = null;
     },
     _score: () => score,
+    _tears: () => tears,
     COMBOS, startDemo, endDemo, demoCtl, demoProgress, _probe: probeCombo
   };
   window.hbSave = save;

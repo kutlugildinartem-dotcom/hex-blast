@@ -29,7 +29,7 @@
 
   /* ---------- настройки ---------- */
   const SETTINGS_DEFAULT = {
-    sound: true, volume: .85, music: true, track: 'morning',
+    sound: true, volume: .85,
     haptics: 2,            // 0 выкл, 1 мягко, 2 сочно, 3 космос
     shake: true,
     bomb: true,            // особые соты вкл/выкл
