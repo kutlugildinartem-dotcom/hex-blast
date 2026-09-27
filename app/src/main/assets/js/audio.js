@@ -721,6 +721,14 @@
       if (mode === 'prism') [84, 88, 91, 96, 100, 103].forEach((m, i) => glassBell(mtof(m), hit + .3 + i * .07, { vol: .03, dur: 2, pan: (i - 2.5) * .3 }));
       if (mode === 'flare') sfx.fireRun(1.6, true);
     },
+    /** Стихийный хаос: глубочайший удар, сияющий хор и россыпь стеклянного звона. */
+    chaos(apo = false) {
+      if (!ready()) return; const t = now();
+      thud(t, { vol: 1.2, from: 60, to: 15, dur: 3 });
+      [40, 47, 52, 56, 59, 64, 71].forEach((m, i) => { const o = ac.createOscillator(); o.type = i < 3 ? 'sine' : 'triangle'; o.frequency.value = mtof(m); o.detune.value = i % 2 ? 7 : -7; const g = envGain(t, .3, .05, 3); o.connect(g); out(g, (i - 3) * .25, 1); o.start(t); o.stop(t + 3.4); });
+      for (let i = 0; i < (apo ? 30 : 18); i++) glassBell(mtof(84 + Math.random() * 20), t + .2 + Math.random() * 1.6, { vol: .02, dur: 1.6, pan: Math.random() * 1.6 - .8 });
+      rumble(t + .05, apo ? 4.5 : 3.5, apo ? 1.5 : 1.2);
+    },
     /** Напалм: взрыв бомбы, который тут же вспыхивает рёвом пламени. */
     napalm() {
       if (!ready()) return;

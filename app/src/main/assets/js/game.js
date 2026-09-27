@@ -234,7 +234,8 @@
     for (const f of floats) if (f.t < .6 && Math.abs(f.y - y) < 36 && Math.abs(f.x - x) < 140) y = f.y - 38;
     floats.push({ str, x, y, size, color, t: 0, life: 1.15 });
   }
-  function showBanner(str, color) { banners.push({ str, color, t: 0, life: 1.5 }); HB.sfx.whoosh(); }
+  let bannerLog = '';
+  function showBanner(str, color) { banners.push({ str, color, t: 0, life: 1.5 }); bannerLog += str + '|'; HB.sfx.whoosh(); }
   const comboColor = c => c >= 6 ? PINK : c >= 4 ? CORAL : c >= 3 ? AMBER : MINT;
 
   /* ---------- ввод ---------- */
@@ -299,6 +300,7 @@
 
   /* ---------- ход ---------- */
   function afterMove() {
+    if (mode === 'demo') return;
     if (tray.every(t => !t)) { refill(); HB.sfx.refill(); }
     updateFits();
     if (stuck()) startEnding();
@@ -380,7 +382,9 @@
       }
       // Цепочка особых сот: бомбы и костры поджигают друг друга, молния заряжает и тех и других.
       const power = HB.settings.bombPower === 2 ? 2 : 1;
-      const queue = [...u].filter(c => c.bomb || c.fire || c.ice || c.sun), done = new Set(), sunburnt = new Set(), sunFrom = new Map(), prismCol = new Map(), burnt = new Set(), blasted = new Set(), blastFrom = new Map(), frostAt = new Map();
+      const queue = [...u].filter(c => c.bomb || c.fire || c.ice || c.sun), done = new Set(), sunburnt = new Set(), sunFrom = new Map(), prismCol = new Map(), burnt = new Set(), blasted = new Set(), blastFrom = new Map(), frostAt = new Map(), iced = new Set(), iceFrom = new Map(), types = new Set();
+      if (strike) types.add('bolt');
+      let nBombs = 0, cryo = false, thermo = false, fireSteam = false, fireSun = false;
       let ices = 0, iceMode = '', suns = 0, sunMode = '';
       let fires = 0, napalm = false, storm = false, fireBlast = false;
       const addCell = (c, d) => {
@@ -392,15 +396,25 @@
         const b = queue.shift();
         if (done.has(b)) continue;
         done.add(b);
+        types.add(b.bomb ? 'bomb' : b.fire ? 'fire' : b.ice ? 'ice' : 'sun');
         const at = delay.get(b), mult = Math.pow(2, done.size - 1);
         if (b.bomb) {
-          const zap = zapped.has(b), nap = burnt.has(b) && !zap, pw = power + (zap || nap ? 1 : 0);
-          const bp = 75 * mult * (zap || nap ? 2 : 1);
+          const zap = zapped.has(b), nap = burnt.has(b) && !zap;
+          const cr = !zap && !nap && (iced.has(b) || b.frozen), th = !zap && !nap && !cr && sunburnt.has(b);
+          const boosted = zap || nap || cr || th, pw = power + (boosted ? 1 : 0);
+          const bp = 75 * mult * (boosted ? 2 : 1);
           if (zap) charged = true;
           if (nap) napalm = true;
+          nBombs++;
+          if (cr) cryo = true;
+          if (th) thermo = true;
           bombPts += bp;
-          booms.push({ x: b.x, y: b.y, t: -at, fired: false, power: pw, pts: bp, charged: zap, napalm: nap });
-          for (const c of cells) if (c !== b && c.ci >= 0 && cdist(b, c) <= pw) { blasted.add(c); if (!blastFrom.has(c)) blastFrom.set(c, b); addCell(c, at + .12 + cdist(b, c) * .07); }
+          booms.push({ x: b.x, y: b.y, t: -at, fired: false, power: pw, pts: bp, charged: zap, napalm: nap, cryo: cr, thermo: th });
+          for (const c of cells) if (c !== b && c.ci >= 0 && cdist(b, c) <= pw) {
+            blasted.add(c); if (!blastFrom.has(c)) blastFrom.set(c, b);
+            if (cr) { frostAt.set(c, at - .3); iced.add(c); if (c.ice && !iceFrom.has(c)) iceFrom.set(c, b); }
+            addCell(c, at + .12 + cdist(b, c) * .07);
+          }
         }
         if (b.sun) {
           suns++;
@@ -435,8 +449,9 @@
         }
         if (b.ice) {
           ices++;
-          const zap = zapped.has(b), fromBomb = blastFrom.get(b), hot = burnt.has(b);
-          const mode = zap ? 'storm' : hot ? 'steam' : fromBomb ? 'fan' : 'burst';
+          const zap = zapped.has(b), fromBomb = blastFrom.get(b), hot = burnt.has(b) || sunburnt.has(b), gl = iceFrom.has(b);
+          const mode = zap ? 'storm' : hot ? 'steam' : gl ? 'glacier' : fromBomb ? 'fan' : 'burst';
+          const chill = c => { iced.add(c); if (c.ice && c !== b && !iceFrom.has(c)) iceFrom.set(c, b); };
           if (!iceMode || mode !== 'burst') iceMode = mode;
           const bp = 80 * mult * (mode === 'burst' ? 1 : 2);
           bombPts += bp;
@@ -446,7 +461,7 @@
             lines.filter(l => l.includes(b)).forEach(l => l.forEach(c => {
               if (c === b || c.ci < 0) return;
               const dd = Math.hypot(c.x - b.x, c.y - b.y) / (S * R3);
-              frostAt.set(c, at + dd * .15); addCell(c, at + 1.15 + dd * .03);
+              chill(c); frostAt.set(c, at + dd * .15); addCell(c, at + 1.15 + dd * .03);
             }));
           } else if (mode === 'fan') {
             // Взрыв бомбы гонит лёд от себя: веер шириной в 5 линий по направлению удара.
@@ -455,26 +470,38 @@
             cells.forEach(c => {
               if (c === b || c.ci < 0) return;
               const vx = c.x - b.x, vy = c.y - b.y, proj = (vx * dx + vy * dy) / step, perp = Math.abs(vx * dy - vy * dx) / step;
-              if (proj > .3 && proj <= 5.2 && perp <= 2.1) { frostAt.set(c, at + proj * .13); addCell(c, at + .6 + proj * .08); }
+              if (proj > .3 && proj <= 5.2 && perp <= 2.1) { chill(c); frostAt.set(c, at + proj * .13); addCell(c, at + .6 + proj * .08); }
             });
           } else if (mode === 'steam') {
             cells.forEach(c => { if (c !== b && c.ci >= 0 && cdist(b, c) <= 2) addCell(c, at + .1 + cdist(b, c) * .06); });
+          } else if (mode === 'glacier') {
+            // Лёд разбудил лёд: иней расходится на два кольца.
+            cells.forEach(c => { if (c !== b && c.ci >= 0 && cdist(b, c) <= 2) { chill(c); frostAt.set(c, at + cdist(b, c) * .16); addCell(c, at + .6 + cdist(b, c) * .06); } });
           } else {
-            ringOf(b).forEach(c => { if (c.ci >= 0) { frostAt.set(c, at); addCell(c, at + .38); } });
+            ringOf(b).forEach(c => { if (c.ci >= 0) { chill(c); frostAt.set(c, at); addCell(c, at + .38); } });
           }
           booms.push({ x: b.x, y: b.y, t: -at, fired: false, ice: true, mode, dir, pts: bp });
           if (mode === 'storm') booms.push({ x: b.x, y: b.y, t: -(at + 1.15), fired: false, ice: true, mode: 'stormhit', pts: 0 });
         }
         if (b.fire) {
           fires++;
-          const zap = zapped.has(b), boom = blasted.has(b);
+          const zap = zapped.has(b), boom = blasted.has(b), wet = !zap && (iced.has(b) || b.frozen), sunny = !zap && sunburnt.has(b);
+          if (wet) {
+            // Лёд тушит костёр: вместо бега огня — паровой взрыв.
+            fireSteam = true;
+            const bp = 90 * mult * 2; bombPts += bp;
+            booms.push({ x: b.x, y: b.y, t: -at, fired: false, ice: true, mode: 'steam', pts: bp });
+            cells.forEach(c => { if (c !== b && c.ci >= 0 && cdist(b, c) <= 2) addCell(c, at + .1 + cdist(b, c) * .06); });
+            continue;
+          }
           if (zap) storm = true;
           if (boom) fireBlast = true;
-          const walks = zap ? 3 : boom ? 2 : 1, bp = 90 * mult * (zap ? 2 : 1);
+          if (sunny) fireSun = true;
+          const walks = zap ? 3 : boom || sunny ? 2 : 1, bp = 90 * mult * (zap || sunny ? 2 : 1);
           bombPts += bp;
           booms.push({ x: b.x, y: b.y, t: -at, fired: false, fire: true, pts: bp, storm: zap });
           for (let w = 0; w < walks; w++) {
-            const len = walks === 1 ? 6 + rand(3) : walks === 2 ? 5 + rand(3) : 4 + rand(2);
+            const len = (walks === 1 ? 6 + rand(3) : walks === 2 ? 5 + rand(3) : 4 + rand(2)) + (sunny ? 2 : 0);
             firePath(b, len).forEach((c, i) => {
               const d = at + .18 + w * .06 + i * .09;
               burnt.add(c); addCell(c, d);
@@ -496,21 +523,31 @@
       let pts = Math.round(lineCells * 10 * full.length * (1 + (combo - 1) * .5)) + (u.size - lineCells - strikeCells) * 15 + strikeCells * 12 + bombPts;
       const bits = [];
       if (strike) bits.push(ringList.length ? 'КОЛЬЦО МОЛНИЙ' : 'МОЛНИЯ!');
-      const nb = [...done].filter(c => c.bomb).length;
+      const nb = nBombs;
       if (charged) bits.push('ГРОМОВОЙ ВЗРЫВ');
       else if (napalm) bits.push('НАПАЛМ');
       else if (nb) bits.push(nb > 1 ? 'БАБАХ ×' + nb : 'БАБАХ!');
       if (suns) bits.unshift({ storm: 'СОЛНЕЧНАЯ БУРЯ', prism: 'ПРИЗМА', nuke: 'ТЕРМОЯД', flare: 'ПРОТУБЕРАНЕЦ', binary: 'ДВОЙНАЯ ЗВЕЗДА', beam: 'СОЛНЕЧНАЯ ВСПЫШКА' }[sunMode] || 'СОЛНЦЕ!');
-      if (ices) bits.push({ storm: 'ЛЕДЯНОЙ РАЗРЯД', fan: 'ЛЕДЯНОЙ ВЕЕР', steam: 'ПАРОВОЙ ВЗРЫВ', burst: 'ЛЕДЯНОЙ ВЗРЫВ' }[iceMode] || 'ЛЁД!');
+      if (ices) bits.push({ storm: 'ЛЕДЯНОЙ РАЗРЯД', fan: 'ЛЕДЯНОЙ ВЕЕР', steam: 'ПАРОВОЙ ВЗРЫВ', glacier: 'ЛЕДНИКОВЫЙ ПЕРИОД', burst: 'ЛЕДЯНОЙ ВЗРЫВ' }[iceMode] || 'ЛЁД!');
       else if (frozenHit >= 3) bits.push('ЗВОН ЛЬДА');
       pts += frozenHit * 20;
-      if (fires) bits.push(storm ? 'ОГНЕННАЯ БУРЯ' : fires > 1 ? 'ЛЕСНОЙ ПОЖАР ×' + fires : fireBlast ? 'ОГНЕННЫЙ ВЗРЫВ' : 'КОСТЁР!');
+      if (fires) bits.push(storm ? 'ОГНЕННАЯ БУРЯ' : fires > 1 ? 'ЛЕСНОЙ ПОЖАР ×' + fires : fireBlast ? 'ОГНЕННЫЙ ВЗРЫВ' : fireSteam ? 'ПАРОВОЙ ВЗРЫВ' : fireSun ? 'ПРОТУБЕРАНЕЦ' : 'КОСТЁР!');
+      if (cryo) bits.push('КРИОБОМБА');
+      if (thermo) bits.push('ТЕРМОЯД');
+      if (fireSteam) bits.push('ПАРОВОЙ ВЗРЫВ');
+      if (fireSun) bits.push('ПРОТУБЕРАНЕЦ');
+      if (types.size >= 3) {
+        const apo = types.size >= 4;
+        pts *= apo ? 3 : 2;
+        bits.unshift(apo ? 'АПОКАЛИПСИС ×3' : 'СТИХИЙНЫЙ ХАОС ×2');
+        chaosFx(ox, oy, apo);
+      }
       if (full.length > 1) bits.push(full.length + ' ' + U.plural(full.length, 'ЛИНИЯ', 'ЛИНИИ', 'ЛИНИЙ'));
       if (combo > 1) bits.push('КОМБО ×' + combo);
       if (cells.every(c => c.ci < 0)) { pts += 300; stat.clears++; bits.push('ЧИСТОЕ ПОЛЕ'); confetti(); }
       score += pts;
       floatText('+' + U.fmt(pts), ox, oy, 30 + Math.min(full.length, 4) * 5);
-      if (bits.length) showBanner(bits.join(' · '), suns ? SUNC : charged ? '#C9E8FF' : ices ? ICEC : fires ? FIREC : nb ? CORAL : strike ? BOLTC : comboColor(combo));
+      if (bits.length) showBanner([...new Set(bits)].join(' · '), types.size >= 3 ? '#FF8FD1' : suns ? SUNC : charged ? '#C9E8FF' : ices ? ICEC : fires ? FIREC : nb ? CORAL : strike ? BOLTC : comboColor(combo));
       rings.push({ x: ox, y: oy, t: 0, color: colorOf(pc.ci), big: false });
       shake = Math.max(shake, 5 + full.length * 3 + Math.min(combo, 6));
       bgFlash = 1; bgFlashColor = colorOf(pc.ci);
@@ -533,7 +570,7 @@
       HB.skins.onPlace(remain.map(c => [c.x, c.y]), groupOf(remain).map(c => [c.x, c.y]), { x: cx, y: cy });
     }
     bump = 1;
-    if (score > best) {
+    if (mode !== 'demo' && score > best) {
       best = score; HB.setBest(best);
       if (bestAtStart > 0 && !recordShown) {
         recordShown = true;
@@ -601,6 +638,128 @@
     save();
   }
 
+  /* ---------- живые показы комбо ---------- */
+  // Каждый показ собирает на поле ситуацию и сам ставит соту в (0,0) (или в target).
+  // seed фиксирует случайность в момент постановки, чтобы огонь бежал именно туда, куда нужно.
+  const COMBOS = [
+    { id: 'bomb', g: ['bomb'], need: ['bomb'], name: 'Бомба', desc: 'Сгорает в линии и взрывает всех соседей.', set: s => { s.row(); s.put(2, 0, 'bomb'); s.fill(12); } },
+    { id: 'chain', g: ['bomb'], need: ['bomb'], name: 'Цепная реакция', desc: 'Бомба поджигает бомбу, каждая следующая даёт вдвое больше очков.', set: s => { s.row(); s.put(2, 0, 'bomb'); s.put(3, -1, 'bomb'); s.put(4, -2, 'bomb'); s.fill(12); } },
+    { id: 'thunderbomb', g: ['bomb', 'bolt'], need: ['bomb', 'bolt'], name: 'Громовой взрыв', desc: 'Молния заряжает бомбу: взрыв на кольцо шире, очки ×2.', piece: 'bolt', set: s => { s.row(); s.put(2, 0, 'bomb'); s.fill(12); } },
+    { id: 'napalm', g: ['bomb', 'fire'], need: ['bomb', 'fire'], name: 'Напалм', desc: 'Огонь добежал до бомбы: огненный взрыв шире, очки ×2.', seed: 0, set: s => { s.row(); s.put(-2, 0, 'fire'); [[-2, -1], [-1, -1], [-3, 1], [-2, 1]].forEach(([q, r]) => s.put(q, r, 'bomb')); s.fill(8); } },
+    { id: 'fireblast', g: ['bomb', 'fire'], need: ['bomb', 'fire'], name: 'Огненный взрыв', desc: 'Бомба разносит костёр: огонь бежит двумя языками.', set: s => { s.row(); s.put(2, 0, 'bomb'); s.put(3, -1, 'fire'); s.fill(16); } },
+    { id: 'icefan', g: ['bomb', 'ice'], need: ['bomb', 'ice'], name: 'Ледяной веер', desc: 'Взрыв гонит лёд от бомбы веером на 5 линий.', set: s => { s.row(); s.put(1, 0, 'bomb'); s.put(1, -1, 'ice'); s.region((q, r) => r < -1 && q !== 1 && q + r !== 0, 24); } },
+    { id: 'cryo', g: ['bomb', 'ice'], need: ['bomb', 'ice'], name: 'Криобомба', desc: 'Лёд замораживает бомбу, и она лопается ледяным взрывом.', set: s => { s.row(); s.put(2, 0, 'ice'); s.put(2, -1, 'bomb'); s.fill(14); } },
+    { id: 'thermo', g: ['bomb', 'sun'], need: ['bomb', 'sun'], name: 'Термояд', desc: 'Бомба и солнце задели друг друга: удар шире, очки ×3.', set: s => { s.row(); s.put(2, 0, 'bomb'); s.put(3, -1, 'sun', 1); s.fill(14); } },
+    { id: 'bolt', g: ['bolt'], need: ['bolt'], name: 'Молния', desc: 'Бьёт по всей линии через себя, даже если она неполная.', piece: 'bolt', set: s => { s.row([0, 3]); s.fill(10); } },
+    { id: 'boltring', g: ['bolt'], need: ['bolt'], name: 'Кольцо молний', desc: 'Молния замкнула свой ряд и вторым ударом бьёт по соседям.', piece: 'bolt', set: s => { s.row(); s.ring(0, 0); s.fill(8); } },
+    { id: 'firestorm', g: ['bolt', 'fire'], need: ['bolt', 'fire'], name: 'Огненная буря', desc: 'Молния раздувает костёр: сразу три языка пламени.', piece: 'bolt', set: s => { s.row(); s.put(-2, 0, 'fire'); s.fill(18); } },
+    { id: 'icestorm', g: ['bolt', 'ice'], need: ['bolt', 'ice'], name: 'Ледяной разряд', desc: 'Иней ползёт по трём линиям и всё разом лопается.', piece: 'bolt', set: s => { s.row(); s.put(-2, 0, 'ice'); s.region((q, r) => q === -2 || q + r === -2, 20); s.fill(6); } },
+    { id: 'sunstorm', g: ['bolt', 'sun'], need: ['bolt', 'sun'], name: 'Солнечная буря', desc: 'Солнце сразу на пределе, три луча прожигают все линии через него.', piece: 'bolt', set: s => { s.row(); s.put(-3, 0, 'sun', 2); s.fill(16); } },
+    { id: 'fire', g: ['fire'], need: ['fire'], name: 'Костёр', desc: 'Огонь бежит по 6–8 случайным сотам: прямо или зигзагом.', set: s => { s.row(); s.put(-2, 0, 'fire'); s.fill(18); } },
+    { id: 'forest', g: ['fire'], need: ['fire'], name: 'Лесной пожар', desc: 'Огонь добежал до другого костра, и тот тоже вспыхивает.', seed: 0, set: s => { s.row(); s.put(-2, 0, 'fire'); [[-2, -1], [-1, -1], [-3, 1], [-2, 1]].forEach(([q, r]) => s.put(q, r, 'fire')); s.fill(12); } },
+    { id: 'steam', g: ['fire', 'ice'], need: ['fire', 'ice'], name: 'Паровой взрыв', desc: 'Лёд и огонь встретились: облако пара обжигает всё вокруг.', set: s => { s.row(); s.put(-2, 0, 'ice'); s.put(-2, -1, 'fire'); s.fill(14); } },
+    { id: 'flare', g: ['fire', 'sun'], need: ['fire', 'sun'], name: 'Протуберанец', desc: 'Солнце и огонь подпитали друг друга: огонь бежит двумя длинными языками.', set: s => { s.row(); s.put(-3, 0, 'sun', 1); s.put(-3, -1, 'fire'); s.fill(18); } },
+    { id: 'freeze', g: ['ice'], need: ['ice'], name: 'Заморозка', desc: 'Поставленный лёд замораживает соседей, они потом звонко лопаются.', piece: 'ice', target: [0, -1], set: s => { s.ring(0, -1); s.fill(10); } },
+    { id: 'iceburst', g: ['ice'], need: ['ice'], name: 'Ледяной взрыв', desc: 'Лёд сгорел в линии, и кольцо вокруг лопается.', set: s => { s.row(); s.put(-2, 0, 'ice'); s.ring(-2, 0); s.fill(8); } },
+    { id: 'glacier', g: ['ice'], need: ['ice'], name: 'Ледниковый период', desc: 'Лёд разбудил лёд: иней расходится на два кольца.', set: s => { s.row(); s.put(-2, 0, 'ice'); s.put(-2, -1, 'ice'); s.fill(18); } },
+    { id: 'prism', g: ['ice', 'sun'], need: ['ice', 'sun'], name: 'Призма', desc: 'Лёд в зоне солнца раскладывает луч на шесть радужных лучей.', set: s => { s.row(); s.put(-3, 0, 'sun', 2); s.put(-3, -1, 'ice'); s.fill(22); } },
+    { id: 'sun', g: ['sun'], need: ['sun'], name: 'Солнечная вспышка', desc: 'Разбитое солнце бьёт лучом с неба по всей своей зоне.', set: s => { s.row(); s.put(-3, 0, 'sun', 3); s.fill(18); } },
+    { id: 'sunauto', g: ['sun'], need: ['sun'], name: 'Луч бьёт сам', desc: 'Солнце на пределе: на следующий ход луч ударит без твоей помощи.', set: s => { s.put(-2, -1, 'sun', 3); s.fill(22); } },
+    { id: 'binary', g: ['sun'], need: ['sun'], name: 'Двойная звезда', desc: 'Луч задел другое солнце, и между ними вспыхивает мост света.', set: s => { s.row(); s.put(-3, 0, 'sun', 2); s.put(-2, -2, 'sun', 1); s.fill(14); } },
+    { id: 'chaos', g: ['multi'], need: ['bolt', 'bomb', 'ice'], len: 5.2, name: 'Стихийный хаос', desc: 'Три разные стихии в одной цепочке: очки ×2, радужные волны и замедление.', piece: 'bolt', set: s => { s.row(); s.put(2, 0, 'bomb'); s.put(-2, 0, 'ice'); s.fill(14); } },
+    { id: 'frostsun', g: ['multi'], need: ['ice', 'sun', 'bomb'], len: 5.4, name: 'Мороз + солнце + бомба', desc: 'Призма, термояд и хаос разом: радужные лучи и ядерная вспышка.', set: s => { s.row(); s.put(-3, 0, 'sun', 2); s.put(-3, -1, 'ice'); s.put(-2, -1, 'bomb'); s.fill(18); } },
+    { id: 'apocalypse', g: ['multi'], need: ['bolt', 'bomb', 'ice', 'fire', 'sun'], len: 5.8, name: 'Апокалипсис', desc: 'Четыре и больше стихий в одной цепочке: очки ×3 и всё, что есть в игре.', piece: 'bolt', set: s => { s.row(); s.put(2, 0, 'bomb'); s.put(-2, 0, 'ice'); s.put(3, 0, 'fire'); s.put(-4, 0, 'sun', 2); s.fill(18); } }
+  ];
+  function mulberry(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+  function setupCombo(cb) {
+    cells.forEach(c => { c.ci = -1; c.bomb = c.fire = c.ice = c.frozen = c.sun = false; c.sunStage = 0; c.fx = null; c.gt = -1; c.pt = 9; c.born = time; });
+    const rn = HB.skins.srng(cb.id.length * 131 + 7), taken = new Set();
+    const s = {
+      row(except = [0]) { cells.forEach(c => { if (c.r === 0 && !except.includes(c.q)) { c.ci = (c.q + 9) % 6; } }); },
+      put(q, r, kind, stage = 0) { const c = map.get(key(q, r)); if (!c) return; c.ci = c.ci >= 0 ? c.ci : Math.floor(rn() * 6); c[kind] = true; if (kind === 'sun') c.sunStage = stage; taken.add(c); },
+      ring(q, r) { const c0 = map.get(key(q, r)); ringOf(c0).forEach(c => { if (c.ci < 0) c.ci = Math.floor(rn() * 6); }); },
+      region(f, n) { cells.filter(c => c.ci < 0 && f(c.q, c.r) && !(c.q === 0 && c.r === 0)).slice(0, n).forEach(c => { c.ci = Math.floor(rn() * 6); }); },
+      fill(n) {
+        const free = cells.filter(c => c.ci < 0 && c.r !== 0 && !(cb.target && c.q === cb.target[0] && c.r === cb.target[1]));
+        for (let i = 0; i < n && free.length; i++) { const k = Math.floor(rn() * free.length); free.splice(k, 1)[0].ci = Math.floor(rn() * 6); }
+      }
+    };
+    cb.set(s);
+    const sp = cb.piece;
+    tray = [makePiece(0, 0, [[0, 0]], 3, sp === 'bomb' ? 0 : -1, null, sp === 'bolt' ? 0 : -1, sp === 'fire' ? 0 : -1, sp === 'ice' ? 0 : -1, sp === 'sun' ? 0 : -1), null, null];
+    tray[0].delay = 0; hold = null;
+    score = 0; shown = 0; combo = 0; miss = 0; pending = [];
+    updateFits();
+  }
+  let demo = null;
+  function startDemo(id, onEnd) {
+    const cb = COMBOS.find(c => c.id === id); if (!cb) return;
+    const saved = { s: snapshot(), mode, undoCharges, snap, bestAtStart, recordShown, rnd: Math.random, onEnd };
+    parts = []; rings = []; floats = []; banners = []; splats = []; booms = []; strikes = []; flames = []; sunBeams = [];
+    drag = ghost = preview = boltPreview = null;
+    setupCombo(cb);
+    mode = 'demo'; inputOn = false;
+    const tq = cb.target || [0, 0], tc = map.get(key(tq[0], tq[1]));
+    demo = { cb, saved, t: 0, placed: false, pt: 0, tx: tc.x, ty: tc.y, tq };
+  }
+  function endDemo() {
+    if (!demo) return;
+    const sv = demo.saved;
+    Math.random = sv.rnd;
+    parts = []; rings = []; floats = []; banners = []; splats = []; booms = []; strikes = []; flames = []; sunBeams = []; hudFx = [];
+    slowmo = freeze = shake = punch = whiteFlash = 0;
+    drag = ghost = preview = boltPreview = null;
+    restore(sv.s);
+    mode = sv.mode; undoCharges = sv.undoCharges; snap = sv.snap; bestAtStart = sv.bestAtStart; recordShown = sv.recordShown;
+    shown = score; best = HB.best();
+    demo = null;
+    if (sv.onEnd) sv.onEnd();
+  }
+  function demoPlace() {
+    const cb = demo.cb, pc = tray[0];
+    Math.random = mulberry(cb.seed == null ? 11 : cb.seed);
+    drag = { i: 0, px: demo.tx, py: demo.ty, lift: 0, dx: 0, vs: 0 };
+    ghost = { aq: demo.tq[0] - pc.shape[0][0], ar: demo.tq[1] - pc.shape[0][1] };
+    place();
+    drag = ghost = preview = boltPreview = null;
+  }
+  function updateDemo(dt) {
+    demo.t += dt;
+    if (!demo.placed) {
+      const k = clamp((demo.t - .4) / .95), e = eio(k);
+      if (demo.t > .4) {
+        if (!drag) drag = { i: 0, px: sx(0), py: TY, lift: 0, dx: 0, vs: 0 };
+        move({ x: lerp(sx(0), demo.tx, e), y: lerp(TY, demo.ty, e) - Math.sin(Math.PI * e) * 50, touch: false });
+      }
+      if (demo.t >= 1.45) { demo.placed = true; demo.pt = demo.t; demoPlace(); }
+    } else if (demo.t - demo.pt > (demo.cb.len || 4.2)) endDemo();
+  }
+  /** Для автотеста и подбора сида: разыграть комбо мгновенно и вернуть текст баннеров. */
+  function probeCombo(id, seed) {
+    const cb = COMBOS.find(c => c.id === id);
+    const saved = { s: snapshot(), mode, rnd: Math.random };
+    setupCombo(cb);
+    mode = 'demo';
+    const tq = cb.target || [0, 0], tc = map.get(key(tq[0], tq[1]));
+    demo = { cb, t: 0, tx: tc.x, ty: tc.y, tq };
+    bannerLog = '';
+    const keep = cb.seed; if (seed != null) cb.seed = seed;
+    demoPlace();
+    cb.seed = keep;
+    const out = bannerLog;
+    Math.random = saved.rnd; demo = null;
+    parts = []; rings = []; floats = []; banners = []; splats = []; booms = []; strikes = []; flames = []; sunBeams = [];
+    restore(saved.s); mode = saved.mode;
+    return out;
+  }
+  function drawDemo(c) {
+    if (!demo) return;
+    const y = TY - 20;
+    rr(c, 50, y, 260, 40, 20); c.fillStyle = 'rgba(10,8,28,.72)'; c.fill();
+    text(c, '▶ ' + demo.cb.name, 180, y + 20, `800 17px ${FB}`, '#FFE08A');
+    text(c, 'Нажми, чтобы вернуться', 180, H - 22 - BOT, `700 12px ${FB}`, 'rgba(244,241,255,.6)');
+  }
+
   /* ---------- обновление ---------- */
   function spring(o, k, target, dt, K = 380, D = 17) {
     const v = o[k + 'V'] || 0;
@@ -640,6 +799,12 @@
       rings.push({ x: b.x, y: b.y, t: -.07, color: '#FFFFFF', big: true, huge: true });
       rings.push({ x: b.x, y: b.y, t: -.16, color: '#9FD8FF', big: true, huge: true });
       iceShards(b.x, b.y, '#BDEBFF', 6);
+    } else if (b.mode === 'glacier') {
+      HB.sfx.iceCrawl(); setTimeout(() => HB.sfx.iceBurst(pan), 520); HB.haptic('icestorm');
+      whiteFlash = Math.max(whiteFlash, 1); shake = Math.max(shake, 22); slowmo = Math.max(slowmo, .5);
+      rings.push({ x: b.x, y: b.y, t: -.5, color: ICEC, big: true, huge: true });
+      rings.push({ x: b.x, y: b.y, t: -.6, color: '#FFFFFF', big: true });
+      iceShards(b.x, b.y, '#BDEBFF', 4);
     } else if (b.mode === 'fan') {
       HB.sfx.iceFan(pan); HB.haptic('shatter');
       whiteFlash = Math.max(whiteFlash, .9); shake = Math.max(shake, 20); freeze = Math.max(freeze, .1);
@@ -656,6 +821,13 @@
       rings.push({ x: b.x, y: b.y, t: 0, color: ICEC, big: true });
       iceShards(b.x, b.y, '#BDEBFF', 3);
     }
+  }
+  /** Стихийный хаос: радужные волны, долгое замедление и самый глубокий удар. */
+  function chaosFx(x, y, apo) {
+    slowmo = Math.max(slowmo, apo ? 1.3 : .95); whiteFlash = Math.max(whiteFlash, 1.2); flashTint = '255,220,245';
+    HB.fx.RAINBOW.forEach((col, i) => rings.push({ x, y, t: -.15 - i * .09, color: col, big: true, huge: true }));
+    for (let i = 0; i < (apo ? 60 : 36); i++) { const a = rnd(0, TAU), v = rnd(120, 320); parts.push({ k: 'star4', soft: true, x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, g: 0, t: -rnd(0, .3), life: rnd(.9, 1.5), color: HB.fx.RAINBOW[i % 6], r: rnd(3, 6) }); }
+    HB.sfx.chaos(apo); HB.haptic('icestorm');
   }
   function sunVapor(x, y, prism) {
     const col = prism != null ? HB.fx.RAINBOW[prism % 6] : 'rgba(255,241,192,.95)';
@@ -682,6 +854,16 @@
     if (b.sun) { sunFx(b); return; }
     if (b.ice) { iceFx(b); return; }
     if (b.fire) { igniteFx(b); return; }
+    if (b.cryo) {
+      HB.sfx.bomb(); HB.sfx.iceBurst((b.x - 180) / 180); HB.haptic('shatter');
+      if (b.pts) floatText('+' + U.fmt(b.pts), b.x, b.y - 20, 28, ICEC);
+      shake = Math.max(shake, 24); whiteFlash = 1.3; flashTint = '210,240,255'; freeze = Math.max(freeze, .1); slowmo = Math.max(slowmo, .45); punch = Math.max(punch, .1);
+      rings.push({ x: b.x, y: b.y, t: 0, color: ICEC, big: true, huge: true });
+      rings.push({ x: b.x, y: b.y, t: -.07, color: '#FFFFFF', big: true });
+      iceShards(b.x, b.y, '#BDEBFF', 6);
+      blast(b.x, b.y, 1.1);
+      return;
+    }
     if (b.napalm) {
       HB.sfx.napalm(); HB.haptic('bomb');
       if (b.pts) floatText('+' + U.fmt(b.pts), b.x, b.y - 20, 28, FIREC);
@@ -710,7 +892,8 @@
       return;
     }
     HB.sfx.bomb(); HB.haptic('bomb');
-    if (b.pts) floatText('+' + U.fmt(b.pts), b.x, b.y - 20, 24 + Math.min(12, Math.log2(b.pts / 75) * 4), CORAL);
+    if (b.thermo) { whiteFlash = 1.6; flashTint = '255,240,200'; sunVapor(b.x, b.y, null); slowmo = Math.max(slowmo, .4); }
+    if (b.pts) floatText('+' + U.fmt(b.pts), b.x, b.y - 20, 24 + Math.min(12, Math.log2(b.pts / 75) * 4), b.thermo ? SUNC : CORAL);
     shake = Math.max(shake, 16 + b.power * 4); whiteFlash = 1; flashTint = '255,235,200'; freeze = Math.max(freeze, .1); punch = Math.max(punch, .08);
     blast(b.x, b.y, 1 + (b.power - 1) * .4);
   }
@@ -728,6 +911,7 @@
   }
   function update(dt) {
     time += dt;
+    if (demo) updateDemo(dt);
     HB.skins.tick(dt);
     let tinkles = 0;
     for (const cl of cells) {
@@ -1393,6 +1577,7 @@
     c.restore();
     drawHud(c);
     drawBanner(c);
+    drawDemo(c);
     if (whiteFlash > 0) { c.fillStyle = `rgba(${flashTint},${Math.min(1, whiteFlash) * .5})`; c.fillRect(0, 0, W, H); }
   }
 
@@ -1421,7 +1606,7 @@
     const r = cv.getBoundingClientRect();
     return { x: (e.clientX - r.left) / r.width * W, y: (e.clientY - r.top) / r.height * H, touch: e.pointerType !== 'mouse' };
   }
-  cv.addEventListener('pointerdown', e => { e.preventDefault(); try { cv.setPointerCapture(e.pointerId); } catch (err) {} down(pt(e)); });
+  cv.addEventListener('pointerdown', e => { e.preventDefault(); if (demo) { endDemo(); return; } try { cv.setPointerCapture(e.pointerId); } catch (err) {} down(pt(e)); });
   cv.addEventListener('pointermove', e => { if (drag) move(pt(e)); });
   cv.addEventListener('pointerup', () => up());
   cv.addEventListener('pointercancel', () => up());
@@ -1504,7 +1689,8 @@
       place();
       drag = ghost = preview = boltPreview = null;
     },
-    _score: () => score
+    _score: () => score,
+    COMBOS, startDemo, endDemo, _probe: probeCombo
   };
   window.hbSave = save;
 })();

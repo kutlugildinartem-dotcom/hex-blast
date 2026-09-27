@@ -36,6 +36,7 @@
   const PAGES = ['settings', 'shop', 'editor'];
 
   window.hbBack = () => {
+    if (HB.game.mode() === 'demo') { HB.game.endDemo(); return true; }
     const t = top();
     if (!t) { if (HB.game.mode() === 'play') { openPause(); return true; } return false; }
     if (t === 'home') return false;
@@ -127,6 +128,31 @@
   tap($('#o-menu'), () => { HB.sfx.click(); overData = null; toMenu(); });
   tap($('#o-undo'), () => { overData = null; close('over'); HB.game.undo(); settle(); });
 
+  /* ---------- комбо с живым показом ---------- */
+  const GROUPS = [['bomb', '💣 Бомба'], ['bolt', '⚡ Молния'], ['fire', '🔥 Костёр'], ['ice', '❄️ Лёд'], ['sun', '☀️ Солнце'], ['multi', '✨ Несколько стихий']];
+  const SPNAME = { bomb: 'бомбу', bolt: 'молнию', fire: 'костёр', ice: 'лёд', sun: 'солнце' };
+  renders.combos = () => {
+    const sp = HB.settings.specials || ['bomb'];
+    $('#combo-groups').innerHTML = GROUPS.map(([g, title]) => {
+      const items = HB.game.COMBOS.filter(c => c.g.includes(g));
+      return `<h3 class="sec">${title}</h3><div class="card combo-card">` + items.map(c => {
+        const miss = c.need.filter(k => !sp.includes(k));
+        return `<div class="combo-item ${miss.length ? 'off' : ''}"><span class="txt"><b>${c.name}</b><small>${c.desc}</small>${miss.length ? `<small class="need">В игре выключено: включи ${miss.map(k => SPNAME[k]).join(', ')} в настройках</small>` : ''}</span><button class="watch" type="button" data-demo="${c.id}">▶ Смотреть</button></div>`;
+      }).join('') + '</div>';
+    }).join('');
+    $$('#combo-groups [data-demo]').forEach(b => tap(b, () => playDemo(b.dataset.demo)));
+  };
+  function playDemo(id) {
+    const openIds = stack.slice();
+    openIds.forEach(s => { document.getElementById(s).hidden = true; });
+    stack.length = 0;
+    HB.sfx.click(); HB.haptic('tick');
+    HB.game.startDemo(id, () => {
+      openIds.forEach(s => { const el = document.getElementById(s); el.hidden = false; stack.push(s); el.style.zIndex = 10 + stack.length; });
+      settle();
+    });
+  }
+
   /* ---------- серия дней ---------- */
   renders.streak = () => {
     const s = HB.profile.streak, n = Math.max(1, s.count);
@@ -164,32 +190,6 @@
     ice: 'Лёд: замораживает соседей. Замёрзшие соты звонко лопаются и дают бонус, а сам лёд взрывается кольцом.',
     sun: 'Солнце: растёт каждый ход на кольцо (до трёх). Разобьёшь раньше — ударит луч по своей зоне, а на четвёртый ход луч ударит сам.'
   };
-  const SPECIAL_COMBO = 'Комбо: молния раздувает костёр в огненную бурю, заряжает бомбу и пускает лёд по трём линиям; огонь превращает бомбу в напалм, а лёд в паровой взрыв; бомба разносит костёр и гонит лёд веером от себя; костёр поджигает другой костёр.';
-  const COMBOS = [
-    ['bolt'], 'Кольцо молний', 'Молния замкнула свой ряд и вторым ударом бьёт по всем соседям.',
-    ['bomb'], 'Цепная реакция', 'Бомба поджигает бомбу: каждая следующая в цепочке даёт вдвое больше очков.',
-    ['bolt', 'bomb'], 'Громовой взрыв', 'Молния заряжает бомбу: взрыв на кольцо шире, очки ×2.',
-    ['bolt', 'fire'], 'Огненная буря', 'Молния раздувает костёр: сразу три языка пламени.',
-    ['bolt', 'ice'], 'Ледяной разряд', 'Иней ползёт по трём линиям через лёд, и всё разом лопается в замедлении.',
-    ['bolt', 'sun'], 'Солнечная буря', 'Солнце сразу на пределе, а лучи прожигают все три линии через него.',
-    ['fire', 'bomb'], 'Напалм', 'Огонь дошёл до бомбы: огненный взрыв шире, очки ×2.',
-    ['bomb', 'fire'], 'Огненный взрыв', 'Бомба задела костёр: огонь бежит двумя языками.',
-    ['fire'], 'Лесной пожар', 'Огонь дошёл до другого костра, и тот тоже вспыхивает.',
-    ['fire', 'ice'], 'Паровой взрыв', 'Огонь дошёл до льда: облако пара обжигает радиус 2.',
-    ['fire', 'sun'], 'Протуберанец', 'Огонь подпитал солнце: удар на кольцо шире, очки ×2.',
-    ['bomb', 'ice'], 'Ледяной веер', 'Взрыв гонит лёд от бомбы веером на 5 линий.',
-    ['bomb', 'sun'], 'Термояд', 'Бомба задела солнце: удар на кольцо шире и ядерная вспышка, очки ×3.',
-    ['ice', 'sun'], 'Призма', 'Лёд в зоне солнца раскладывает луч на шесть радужных лучей.',
-    ['sun'], 'Двойная звезда', 'Луч задел другое солнце, и между ними вспыхивает мост света.'
-  ];
-  function renderCombos(sp) {
-    let html = '';
-    for (let i = 0; i < COMBOS.length; i += 3) {
-      const need = COMBOS[i], ok = need.every(k => sp.includes(k));
-      html += `<li class="${ok ? '' : 'off'}"><b>${COMBOS[i + 1]}</b><span>${COMBOS[i + 2]}</span></li>`;
-    }
-    $('#combo-list').innerHTML = html;
-  }
   const SPECIAL_DESC = {
     bomb: 'Сота с фитилём. Сгорает в линии и взрывает соседей. Каждый следующий взрыв в цепочке даёт вдвое больше очков.',
     bolt: 'Сота-молния. Как только ставишь её на поле, бьёт молния и сжигает всю линию через неё, даже неполную.',
@@ -208,7 +208,6 @@
     $$('[data-multi]').forEach(seg => seg.querySelectorAll('button').forEach(b => b.classList.toggle('on', (s[seg.dataset.multi] || []).includes(b.dataset.v))));
     const sp = s.specials || ['bomb'];
     $('#special-desc').textContent = sp.map(k => SPECIAL_ONE[k]).join(' ');
-    renderCombos(sp);
     $('#power-row').hidden = !sp.includes('bomb');
     $('#hap-desc').textContent = HAP_DESC[s.haptics];
     const n = HB.profile.custom.length, on = HB.profile.custom.filter(c => c.on).length;

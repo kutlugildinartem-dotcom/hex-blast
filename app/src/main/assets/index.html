@@ -20,6 +20,7 @@
   </div>
   <nav class="home-grid">
     <button type="button" data-open="shop"><i class="ic ic-skin"></i>Магазин</button>
+    <button type="button" data-open="combos"><i class="ic ic-combo"></i>Комбо</button>
     <button type="button" data-open="settings"><i class="ic ic-gear"></i>Настройки</button>
   </nav>
   <button class="update-chip" id="h-update" type="button" hidden>Вышла версия <b></b> · обновить</button>
@@ -31,6 +32,7 @@
     <button class="btn-play" id="p-resume" type="button">Продолжить</button>
     <div class="stack">
       <button class="btn" type="button" data-open="shop">Магазин</button>
+      <button class="btn" type="button" data-open="combos">Все комбо</button>
       <button class="btn" type="button" data-open="settings">Настройки</button>
       <button class="btn" id="p-restart" type="button">Начать заново</button>
       <button class="btn-link" id="p-menu" type="button">Главное меню</button>
@@ -86,7 +88,7 @@
           <div class="seg" data-multi="specials"><button type="button" data-v="bomb">Бомба</button><button type="button" data-v="bolt">Молния</button><button type="button" data-v="fire">Костёр</button><button type="button" data-v="ice">Лёд</button><button type="button" data-v="sun">Солнце</button></div>
           <small id="special-desc"></small>
         </div>
-        <div class="row-col"><b>Все комбо</b><ul class="combo-list" id="combo-list"></ul></div>
+        <button class="row link" type="button" data-open="combos"><span class="txt"><b>Все комбо</b><small>Список всех сочетаний с живым показом прямо на поле</small></span><span class="chev">›</span></button>
         <div class="row-col"><b>Откуда берутся</b>
           <div class="seg" data-seg="bombSource"><button type="button" data-v="combo">За комбо</button><button type="button" data-v="charge">Заряд линий</button><button type="button" data-v="random">Случайно</button></div>
           <small id="bomb-desc"></small>
@@ -134,6 +136,14 @@
   <div class="page-body">
     <p class="muted small shop-hint" id="shop-hint"></p>
     <div class="skin-grid" id="skin-grid"></div>
+  </div>
+</section>
+
+<section id="combos" class="screen page" hidden>
+  <header class="page-head"><button class="back" type="button" data-back aria-label="Назад">‹</button><h2>Комбо</h2></header>
+  <div class="page-body">
+    <p class="muted small">Нажми «Смотреть», и комбо сыграет прямо на поле со всеми эффектами и звуком. Твоя партия подождёт и вернётся как была.</p>
+    <div id="combo-groups"></div>
   </div>
 </section>
 
