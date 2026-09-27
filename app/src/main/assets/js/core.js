@@ -52,7 +52,7 @@
   /* ---------- профиль ---------- */
   const PROFILE_DEFAULT = {
     honey: 0, owned: ['classic'], skin: 'classic',
-    ownedSounds: ['xylo'], sound: 'xylo', ownedTrails: ['sparks'], trail: 'sparks', ownedBursts: ['classic'], burst: 'classic',
+    ownedSounds: ['xylo'], sound: 'xylo', ownedTrails: ['sparks'], trail: 'sparks', ownedBursts: ['classic'], burst: 'classic', ownedScores: ['classic'], scoreStyle: 'classic',
     games: 0, totalLines: 0,
     streak: { count: 0, last: '', claimed: '' },
     custom: []            // [{ id, cells: [[q, r], ...], on }]

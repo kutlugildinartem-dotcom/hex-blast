@@ -308,3 +308,8 @@ input[type="range"] { width: 100%; accent-color: var(--amber); height: 28px; }
 .v-state { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%) scale(.8); opacity: 0; transition: opacity .18s, transform .25s cubic-bezier(.2, 1.4, .4, 1); padding: 12px 18px; border-radius: 22px; background: rgba(8, 6, 22, .62); color: #fff; font-weight: 900; font-size: 18px; pointer-events: none; white-space: nowrap; }
 .v-state.on { opacity: 1; transform: translate(-50%, -50%) scale(1); }
 .v-hint { position: absolute; left: 16px; right: 16px; bottom: calc(18px + var(--inset-bottom, 0px)); text-align: center; font-size: 12px; font-weight: 700; color: rgba(244, 241, 255, .55); pointer-events: none; transition: opacity .6s; }
+
+.shop-tabs button { font-size: 12px; }
+.btn.buy-chance { background: linear-gradient(180deg, #5A3A10, #3E2508); color: #FFE3A0; box-shadow: 0 4px 0 #24160A; display: flex; align-items: center; justify-content: center; gap: 6px; }
+.btn.buy-chance.poor { opacity: .5; }
+.btn.buy-chance.confirm { background: linear-gradient(180deg, #FFC857, #E89A1E); color: #2A1800; }

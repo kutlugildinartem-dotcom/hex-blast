@@ -45,6 +45,7 @@
   let tray = [null, null, null], hold = null, drag = null, ghost = null, preview = null, boltPreview = null;
   let score = 0, shown = 0, bump = 0, best = HB.best(), bestAtStart = 0, recordShown = false, isRecord = false;
   let combo = 0, miss = 0, stat = { lines: 0, maxCombo: 0, clears: 0 };
+  let paidChances = 0;
   let pending = [], charge = 0, undoCharges = 0, snap = null, lastAward = 0, holdHint = false;
   let mode = 'idle', inputOn = false, endT = 0, time = 0;
   let slowmo = 0, freeze = 0, punch = 0, shake = 0, bgFlash = 0, bgFlashColor = '#A78BFA', whiteFlash = 0, idleT = 0, trailT = 0;
@@ -164,7 +165,7 @@
   }
   function save() {
     if (mode !== 'play') { if (mode !== 'idle') HB.store.del('hb.save2'); return; }
-    HB.store.set('hb.save2', { v: 2, s: snapshot(), undoCharges, snap, bestAtStart });
+    HB.store.set('hb.save2', { v: 2, s: snapshot(), undoCharges, snap, bestAtStart, paidChances });
   }
   function load() {
     let d = HB.store.get('hb.save2', null);
@@ -186,7 +187,7 @@
     if (tray.every(t => !t)) refill();
     updateFits();
     if (stuck()) { HB.store.del('hb.save2'); cells.forEach(c => { c.ci = -1; c.bomb = false; }); tray = [null, null, null]; hold = null; return false; }
-    shown = score; undoCharges = d.undoCharges || 0; snap = d.snap || null; bestAtStart = d.bestAtStart || 0;
+    shown = score; paidChances = d.paidChances || 0; undoCharges = d.undoCharges || 0; snap = d.snap || null; bestAtStart = d.bestAtStart || 0;
     return true;
   }
 
@@ -732,9 +733,9 @@
         whiteFlash = 1.8; flashTint = '255,252,235';
         [0, .12, .26, .42].forEach((d, i) => rings.push({ x: a.x, y: a.y - 70, t: -d, color: i % 2 ? '#FFE9A0' : '#FFFFFF', big: true, huge: true }));
         const all = cells.filter(c => c.ci >= 0);
-        sweep(all, a.x, a.y, 25, 420);
-        score += 500; stat.clears++;
-        floatText('+500', 180, CY - 60, 40, '#FFF3B0');
+        sweep(all, a.x, a.y, 0, 420);
+        score += 2000; stat.clears++; bump = 1;
+        floatText('+2000', 180, CY - 60, 46, '#FFF3B0');
         confetti(70);
         for (let i = 0; i < 40; i++) { const an = rnd(0, TAU), v = rnd(80, 320); parts.push({ k: 'petal', x: a.x, y: a.y - 70, vx: Math.cos(an) * v, vy: Math.sin(an) * v, g: 50, t: 0, life: rnd(1.4, 2.4), color: i % 4 ? '#FFFFFF' : '#FFF3B0', r: rnd(2.5, 4.5), rot: rnd(0, TAU), vr: rnd(-6, 6), soft: true }); }
         showBanner('ПОЛЕ ОЧИЩЕНО', '#FFF3B0');
@@ -834,7 +835,7 @@
     HB.profile.games++; HB.profile.totalLines += stat.lines;
     HB.saveProfile();
     if (isRecord) { confetti(90); HB.sfx.record(); HB.haptic('record'); }
-    HB.ui.showOver({ score, best, isRecord, lines: stat.lines, maxCombo: stat.maxCombo, honey: lastAward, canUndo: canUndo() });
+    HB.ui.showOver({ score, best, isRecord, lines: stat.lines, maxCombo: stat.maxCombo, honey: lastAward, canUndo: canUndo(), price: chancePrice(), afford: HB.profile.honey - lastAward >= chancePrice() });
   }
   /**
    * Три фигуры, которые точно встают одна за другой. Каждая следующая подбирается на поле,
@@ -895,11 +896,22 @@
     tray = next;
     if (carry.length) parts.push({ k: 'flash', x: 180, y: TY, vx: 0, vy: 0, t: 0, life: .35, color: '#FFFFFF', r: 60, soft: true });
   }
+  /** Второй шанс за мёд: 1000, потом 2000, 3000… в пределах одной партии. */
+  const chancePrice = () => 1000 * (paidChances + 1);
+  function buyChance() {
+    if (mode !== 'over') return false;
+    const price = chancePrice();
+    if (HB.profile.honey - lastAward < price) return false;
+    if (!undo(true)) return false;
+    HB.profile.honey -= price; paidChances++; HB.saveProfile(); save();
+    HB.sfx.buy(); HB.haptic('buy');
+    return true;
+  }
   /** Второй шанс: вместо конца игры фигуры в лотке меняются на подходящие. */
-  function undo() {
-    if (!canUndo() || (mode !== 'over' && mode !== 'ending')) return false;
+  function undo(paid) {
+    if ((!paid && !canUndo()) || (mode !== 'over' && mode !== 'ending')) return false;
     if (mode === 'over') { HB.profile.honey = Math.max(0, HB.profile.honey - lastAward); HB.profile.games--; HB.saveProfile(); }
-    undoCharges--; snap = null;
+    if (!paid) undoCharges--; snap = null;
     mode = 'play'; endT = 0; inputOn = true;
     cells.forEach(c => { c.gt = -1; });
     swapTray(rescuePieces(), .15);
@@ -915,7 +927,7 @@
     cells.forEach(c => { c.ci = -1; c.bomb = false; c.fire = false; c.ice = false; c.frozen = false; c.sun = false; c.daisy = false; c.pt = 9; c.fx = null; c.gt = -1; });
     gifts = []; ascend = null;
     score = shown = 0; combo = miss = 0; stat = { lines: 0, maxCombo: 0, clears: 0 };
-    pending = []; charge = 0; undoCharges = 0; snap = null; lastAward = 0; hold = null; holdHint = false;
+    pending = []; charge = 0; undoCharges = 0; snap = null; lastAward = 0; hold = null; holdHint = false; paidChances = 0;
     best = HB.best(); bestAtStart = best; recordShown = false; isRecord = false;
     parts = []; rings = []; floats = []; banners = []; splats = []; booms = []; strikes = []; hudFx = []; flames = []; sunBeams = [];
     drag = ghost = preview = null; idleT = 0;
@@ -1858,7 +1870,16 @@
     c.save();
     const fl = fire ? 1 + .03 * Math.sin(time * 23) * Math.sin(time * 7) : 1;
     c.translate(180, 58 + TOP); const s = (1 + .28 * eo(bump)) * fl; c.scale(s, s);
-    if (fire) {
+    const ss = HB.profile.scoreStyle;
+    if (ss && ss !== 'classic' && HB.scoreStyles && HB.scoreStyles.has(ss)) {
+      if (fire) {
+        // Комбо поверх стиля: живое оранжевое зарево за цифрами.
+        c.save(); c.globalCompositeOperation = 'lighter';
+        const gl = c.createRadialGradient(0, 0, 4, 0, 0, 70); gl.addColorStop(0, `rgba(255,120,20,${.45 + .15 * Math.sin(time * 17)})`); gl.addColorStop(1, 'rgba(255,60,0,0)');
+        c.fillStyle = gl; c.beginPath(); c.ellipse(0, 0, 80, 34, 0, 0, TAU); c.fill(); c.restore();
+      }
+      HB.scoreStyles.draw(c, U.fmt(shown), 0, 0, 38, time, ss);
+    } else if (fire) {
       const g = c.createLinearGradient(0, -20, 0, 18);
       g.addColorStop(0, '#FFF6B0'); g.addColorStop(.45, '#FFB21E'); g.addColorStop(1, '#FF3D1A');
       c.shadowColor = '#FF5A00'; c.shadowBlur = 12 + 6 * Math.sin(time * 17);
@@ -1994,7 +2015,7 @@
     hasSave: () => hasSave && mode === 'idle' && tray.some(Boolean),
     resume() { mode = 'play'; },
     newGame,
-    undo, canUndo,
+    undo, canUndo, buyChance,
     setInput(on) { inputOn = on; if (!on) up(); },
     mode: () => mode,
     confetti,

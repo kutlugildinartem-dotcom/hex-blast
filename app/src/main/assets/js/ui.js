@@ -107,6 +107,9 @@
     $('#o-best b').textContent = U.fmt(d.best);
     $('#o-stats').textContent = `Линий: ${d.lines} · макс. комбо ×${d.maxCombo}`;
     $('#o-undo').hidden = !d.canUndo;
+    const ob = $('#o-buy');
+    ob.hidden = d.canUndo; ob.classList.toggle('poor', !d.afford); ob.classList.remove('confirm');
+    ob.innerHTML = `✦ Второй шанс за <b>${U.fmt(d.price)}</b> <i class="honey"></i>`;
     sc.textContent = '0'; hn.textContent = '0';
     const t0 = performance.now();
     let coinStep = 0;
@@ -127,6 +130,24 @@
   tap($('#o-again'), () => { HB.sfx.click(); HB.haptic('place'); overData = null; close('over'); HB.game.newGame(); });
   tap($('#o-menu'), () => { HB.sfx.click(); overData = null; toMenu(); });
   tap($('#o-undo'), () => { overData = null; close('over'); HB.game.undo(); settle(); });
+  let buyTm = 0;
+  tap($('#o-buy'), () => {
+    const d = overData, ob = $('#o-buy'); if (!d) return;
+    if (!d.afford) {
+      shakeEl(ob); HB.sfx.invalid(); HB.haptic('invalid');
+      toast(`Нужно ${U.fmt(d.price)} мёда, у тебя ${U.fmt(Math.max(0, HB.profile.honey - d.honey))} без этой партии`);
+      return;
+    }
+    if (!ob.classList.contains('confirm')) {
+      ob.classList.add('confirm'); ob.innerHTML = `Точно? Спишется ${U.fmt(d.price)} <i class="honey"></i>`;
+      HB.sfx.click(); HB.haptic('tick');
+      clearTimeout(buyTm); buyTm = setTimeout(() => { if (overData === d) { ob.classList.remove('confirm'); ob.innerHTML = `✦ Второй шанс за <b>${U.fmt(d.price)}</b> <i class="honey"></i>`; } }, 3000);
+      return;
+    }
+    overData = null; close('over');
+    if (!HB.game.buyChance()) toast('Не получилось купить второй шанс');
+    settle();
+  });
 
   /* ---------- комбо с живым показом ---------- */
   const GROUPS = [['bomb', '💣 Бомба'], ['bolt', '⚡ Молния'], ['fire', '🔥 Костёр'], ['ice', '❄️ Лёд'], ['sun', '☀️ Солнце'], ['daisy', '🌼 Ромашка'], ['multi', '✨ Несколько стихий']];
@@ -342,7 +363,8 @@
     skins: { list: () => HB.skins.list, owned: 'owned', cur: 'skin', hint: 'Мёд дают за каждую партию: чем больше счёт и линий, тем больше мёда.' },
     sounds: { list: () => HB.fx.SOUNDS, owned: 'ownedSounds', cur: 'sound', hint: 'Набор меняет все музыкальные звуки игры. Нажми «Послушать», чтобы оценить до покупки.' },
     trails: { list: () => HB.fx.TRAILS, owned: 'ownedTrails', cur: 'trail', hint: 'След тянется за фигурой, пока ты её держишь.' },
-    bursts: { list: () => HB.fx.BURSTS, owned: 'ownedBursts', cur: 'burst', hint: 'Так сгорают линии. «Как у скина» оставляет родной эффект выбранного скина.' }
+    bursts: { list: () => HB.fx.BURSTS, owned: 'ownedBursts', cur: 'burst', hint: 'Так сгорают линии. «Как у скина» оставляет родной эффект выбранного скина.' },
+    scores: { list: () => HB.scoreStyles.list, owned: 'ownedScores', cur: 'scoreStyle', hint: 'Так выглядит счёт во время игры. Во время комбо под цифрами разгорается огонь.' }
   };
   let shopTab = 'skins';
   const pending = { id: null, tm: 0 };
@@ -489,7 +511,7 @@
   let liveRaf = 0, liveLast = 0;
   function startPreviews() {
     cancelAnimationFrame(liveRaf); live.length = 0;
-    if (shopTab !== 'trails' && shopTab !== 'bursts') return;
+    if (shopTab !== 'trails' && shopTab !== 'bursts' && shopTab !== 'scores') return;
     document.querySelectorAll('#skin-grid .skin').forEach((el, i) => {
       const cv = el.querySelector('canvas');
       live.push({ id: el.dataset.id, cv, c: cv.getContext('2d'), parts: [], splats: [], t: i * .37, st: {}, hist: [], fired: false });
@@ -505,8 +527,17 @@
     if ($('#shop').hidden) return;
     const dt = Math.min(.05, (now - liveLast) / 1000); liveLast = now;
     HB.skins.tick(0);
-    live.forEach(L => (shopTab === 'trails' ? trailPreview : burstPreview)(L, dt));
+    live.forEach(L => (shopTab === 'trails' ? trailPreview : shopTab === 'scores' ? scorePreview : burstPreview)(L, dt));
     liveRaf = requestAnimationFrame(tickPreviews);
+  }
+  function scorePreview(L, dt) {
+    const c = L.c, w = L.cv.width, h = L.cv.height;
+    L.t += dt;
+    previewBg(c, w, h);
+    const n = 12480 + Math.floor(L.t * 7) * 15;
+    if (!HB.scoreStyles.draw(c, U.fmt(n), w / 2, h / 2, 50, L.t, L.id, 1.5)) {
+      c.font = '800 50px "HB Display", "Baloo 2", sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = '#F4F1FF'; c.fillText(U.fmt(n), w / 2, h / 2);
+    }
   }
   function trailPreview(L, dt) {
     const c = L.c, w = L.cv.width, h = L.cv.height, sk = HB.skins.current(), col = sk.colors[3];
