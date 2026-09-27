@@ -36,7 +36,7 @@
   const PAGES = ['settings', 'shop', 'editor'];
 
   window.hbBack = () => {
-    if (HB.game.mode() === 'demo') { HB.game.endDemo(); return true; }
+    if (HB.game.mode() === 'demo') { closeViewer(); return true; }
     const t = top();
     if (!t) { if (HB.game.mode() === 'play') { openPause(); return true; } return false; }
     if (t === 'home') return false;
@@ -137,21 +137,98 @@
       const items = HB.game.COMBOS.filter(c => c.g.includes(g));
       return `<h3 class="sec">${title}</h3><div class="card combo-card">` + items.map(c => {
         const miss = c.need.filter(k => !sp.includes(k));
-        return `<div class="combo-item ${miss.length ? 'off' : ''}"><span class="txt"><b>${c.name}</b><small>${c.desc}</small>${miss.length ? `<small class="need">В игре выключено: включи ${miss.map(k => SPNAME[k]).join(', ')} в настройках</small>` : ''}</span><button class="watch" type="button" data-demo="${c.id}">▶ Смотреть</button></div>`;
+        return `<div class="combo-item ${miss.length ? 'off' : ''}" role="button" tabindex="0" data-demo="${c.id}"><span class="txt"><b>${c.name}</b><small>${c.desc}</small>${miss.length ? `<small class="need">В игре выключено: включи ${miss.map(k => SPNAME[k]).join(', ')} в настройках</small>` : ''}</span><span class="play">▶</span></div>`;
       }).join('') + '</div>';
     }).join('');
     $$('#combo-groups [data-demo]').forEach(b => tap(b, () => playDemo(b.dataset.demo)));
   };
+  /* Просмотр как лента: листаешь вверх — следующее комбо, вниз — предыдущее.
+     Зажал — замедление, коротко нажал — пауза. Ролик в конце сам переходит к следующему. */
+  const viewer = { on: false, i: 0, open: [], raf: 0 };
+  const GNAME = Object.fromEntries(GROUPS.map(([g, t]) => [g, t.replace(/^\S+\s/, '')]));
+  function showCombo(dir) {
+    const list = HB.game.COMBOS, c = list[viewer.i], card = $('#v-card');
+    const fill = () => {
+      $('#v-group').textContent = GNAME[c.g[0]] || '';
+      $('#v-name').textContent = c.name; $('#v-desc').textContent = c.desc;
+      $('#v-count').textContent = (viewer.i + 1) + ' / ' + list.length;
+    };
+    if (dir) {
+      card.className = 'v-card ' + (dir > 0 ? 'out-up' : 'out-down');
+      setTimeout(() => { fill(); card.className = 'v-card ' + (dir > 0 ? 'out-down' : 'out-up'); card.offsetWidth; card.className = 'v-card'; }, 160);
+    } else fill();
+    HB.game.startDemo(c.id, () => { closeViewer(); reopen(); }, () => step(1, true));
+  }
+  function step(dir, auto) {
+    const n = HB.game.COMBOS.length;
+    viewer.i = (viewer.i + dir + n) % n;
+    if (!auto) { HB.sfx.whoosh(); HB.haptic('tick'); }
+    showCombo(dir);
+  }
+  let stateT = 0;
+  function flashState(txt, keep) {
+    const el = $('#v-state'); el.textContent = txt; el.classList.add('on');
+    clearTimeout(stateT); if (!keep) stateT = setTimeout(() => el.classList.remove('on'), 650);
+  }
   function playDemo(id) {
-    const openIds = stack.slice();
-    openIds.forEach(s => { document.getElementById(s).hidden = true; });
+    viewer.open = stack.slice();
+    viewer.open.forEach(s => { document.getElementById(s).hidden = true; });
     stack.length = 0;
     HB.sfx.click(); HB.haptic('tick');
-    HB.game.startDemo(id, () => {
-      openIds.forEach(s => { const el = document.getElementById(s); el.hidden = false; stack.push(s); el.style.zIndex = 10 + stack.length; });
-      settle();
-    });
+    viewer.on = true; viewer.i = Math.max(0, HB.game.COMBOS.findIndex(c => c.id === id));
+    $('#viewer').hidden = false; $('#v-hint').style.opacity = 1;
+    setTimeout(() => { if (viewer.on) $('#v-hint').style.opacity = 0; }, 4500);
+    showCombo(0);
+    const tickBar = () => { if (!viewer.on) return; $('#v-prog').style.width = (HB.game.demoProgress() * 100).toFixed(1) + '%'; viewer.raf = requestAnimationFrame(tickBar); };
+    tickBar();
   }
+  function closeViewer() {
+    if (!viewer.on) return;
+    viewer.on = false; cancelAnimationFrame(viewer.raf);
+    HB.sfx.hold(false); HB.sfx.slowTape(false);
+    $('#viewer').hidden = true; $('#v-state').classList.remove('on');
+    if (HB.game.mode() === 'demo') { HB.game.endDemo(); return; }
+  }
+  // endDemo вызывает closeViewer через onEnd, а тот возвращает открытые окна.
+  const reopen = () => {
+    viewer.open.forEach(s => { const el = document.getElementById(s); el.hidden = false; stack.push(s); el.style.zIndex = 10 + stack.length; });
+    viewer.open = []; settle();
+  };
+  (() => {
+    const v = $('#viewer'); let p = null, holdT = 0;
+    v.addEventListener('pointerdown', e => {
+      if (e.target.closest('.v-close')) return;
+      e.preventDefault();
+      p = { x: e.clientX, y: e.clientY, t: performance.now(), moved: false, slow: false };
+      holdT = setTimeout(() => {
+        if (!p || p.moved) return; p.slow = true;
+        HB.game.demoCtl({ slow: true, paused: false }); HB.sfx.hold(false); HB.sfx.slowTape(true); HB.haptic('tick');
+        flashState('🐢 Замедление', true);
+      }, 230);
+    });
+    v.addEventListener('pointermove', e => {
+      if (!p) return;
+      const dx = e.clientX - p.x, dy = e.clientY - p.y;
+      if (Math.hypot(dx, dy) > 14) p.moved = true;
+      if (p.moved && !p.slow) $('#v-card').style.transform = `translateY(${Math.max(-40, Math.min(40, dy * .35))}px)`;
+    });
+    const upH = e => {
+      if (!p) return; clearTimeout(holdT);
+      const dx = e.clientX - p.x, dy = e.clientY - p.y, q = p; p = null;
+      $('#v-card').style.transform = '';
+      if (q.slow) { HB.game.demoCtl({ slow: false }); HB.sfx.slowTape(false); $('#v-state').classList.remove('on'); return; }
+      const ax = Math.abs(dx), ay = Math.abs(dy);
+      if (Math.max(ax, ay) > 50) { const d = ay >= ax ? (dy < 0 ? 1 : -1) : (dx < 0 ? 1 : -1); step(d); return; }
+      if (!q.moved) {
+        const st = HB.game.demoCtl({ paused: !HB.game.demoCtl({}).paused });
+        HB.sfx.hold(st.paused);
+        if (st.paused) flashState('❚❚ Пауза', true); else flashState('▶');
+      }
+    };
+    v.addEventListener('pointerup', upH);
+    v.addEventListener('pointercancel', upH);
+    tap($('#v-close'), () => closeViewer());
+  })();
 
   /* ---------- серия дней ---------- */
   renders.streak = () => {

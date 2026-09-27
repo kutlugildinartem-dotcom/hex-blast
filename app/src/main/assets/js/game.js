@@ -691,23 +691,28 @@
     score = 0; shown = 0; combo = 0; miss = 0; pending = [];
     updateFits();
   }
-  let demo = null;
-  function startDemo(id, onEnd) {
+  let demo = null, lastShake = 0;
+  const clearFx = () => { parts = []; rings = []; floats = []; banners = []; splats = []; booms = []; strikes = []; flames = []; sunBeams = []; hudFx = []; slowmo = freeze = shake = punch = whiteFlash = 0; };
+  /** Открыть показ комбо id. Если показ уже идёт, партия уже отложена: просто переключаем ролик. */
+  function startDemo(id, onEnd, onDone) {
     const cb = COMBOS.find(c => c.id === id); if (!cb) return;
-    const saved = { s: snapshot(), mode, undoCharges, snap, bestAtStart, recordShown, rnd: Math.random, onEnd };
-    parts = []; rings = []; floats = []; banners = []; splats = []; booms = []; strikes = []; flames = []; sunBeams = [];
+    const saved = demo ? demo.saved : { s: snapshot(), mode, undoCharges, snap, bestAtStart, recordShown, rnd: Math.random, onEnd };
+    clearFx();
     drag = ghost = preview = boltPreview = null;
+    Math.random = saved.rnd;
     setupCombo(cb);
     mode = 'demo'; inputOn = false;
     const tq = cb.target || [0, 0], tc = map.get(key(tq[0], tq[1]));
-    demo = { cb, saved, t: 0, placed: false, pt: 0, tx: tc.x, ty: tc.y, tq };
+    const keep = demo || {};
+    demo = { cb, saved, t: 0, placed: false, pt: 0, tx: tc.x, ty: tc.y, tq, paused: !!keep.paused, slow: !!keep.slow, ts: keep.paused ? 0 : 1, fade: 1, onDone: onDone || keep.onDone };
   }
+  function demoCtl(o) { if (!demo) return null; if ('paused' in o) demo.paused = o.paused; if ('slow' in o) demo.slow = o.slow; return { paused: demo.paused, slow: demo.slow }; }
+  const demoProgress = () => demo ? clamp(demo.placed ? .3 + .7 * (demo.t - demo.pt) / (demo.cb.len || 4.2) : .3 * demo.t / 1.45) : 0;
   function endDemo() {
     if (!demo) return;
     const sv = demo.saved;
     Math.random = sv.rnd;
-    parts = []; rings = []; floats = []; banners = []; splats = []; booms = []; strikes = []; flames = []; sunBeams = []; hudFx = [];
-    slowmo = freeze = shake = punch = whiteFlash = 0;
+    clearFx();
     drag = ghost = preview = boltPreview = null;
     restore(sv.s);
     mode = sv.mode; undoCharges = sv.undoCharges; snap = sv.snap; bestAtStart = sv.bestAtStart; recordShown = sv.recordShown;
@@ -732,7 +737,7 @@
         move({ x: lerp(sx(0), demo.tx, e), y: lerp(TY, demo.ty, e) - Math.sin(Math.PI * e) * 50, touch: false });
       }
       if (demo.t >= 1.45) { demo.placed = true; demo.pt = demo.t; demoPlace(); }
-    } else if (demo.t - demo.pt > (demo.cb.len || 4.2)) endDemo();
+    } else if (demo.t - demo.pt > (demo.cb.len || 4.2) && !demo.doneSent) { demo.doneSent = true; if (demo.onDone) demo.onDone(); else endDemo(); }
   }
   /** Для автотеста и подбора сида: разыграть комбо мгновенно и вернуть текст баннеров. */
   function probeCombo(id, seed) {
@@ -754,10 +759,7 @@
   }
   function drawDemo(c) {
     if (!demo) return;
-    const y = TY - 20;
-    rr(c, 50, y, 260, 40, 20); c.fillStyle = 'rgba(10,8,28,.72)'; c.fill();
-    text(c, '▶ ' + demo.cb.name, 180, y + 20, `800 17px ${FB}`, '#FFE08A');
-    text(c, 'Нажми, чтобы вернуться', 180, H - 22 - BOT, `700 12px ${FB}`, 'rgba(244,241,255,.6)');
+    if (demo.fade > 0) { c.fillStyle = `rgba(8,6,20,${demo.fade})`; c.fillRect(0, 0, W, H); }
   }
 
   /* ---------- обновление ---------- */
@@ -910,9 +912,19 @@
     }, 70);
   }
   function update(dt) {
+    if (demo) {
+      // Пауза и замедление просмотра: плавно, как у видео.
+      const target = demo.paused ? 0 : demo.slow ? .2 : 1;
+      demo.ts += (target - demo.ts) * Math.min(1, dt * 9);
+      if (Math.abs(target - demo.ts) < .01) demo.ts = target;
+      demo.fade = Math.max(0, demo.fade - dt * 3);
+      dt *= demo.ts;
+    }
     time += dt;
     if (demo) updateDemo(dt);
     HB.skins.tick(dt);
+    if (shake > lastShake + 4) HB.skins.stir(Math.min(1.4, shake / 22), 180, CY);
+    lastShake = shake;
     let tinkles = 0;
     for (const cl of cells) {
       if (cl.pt < 9) cl.pt += dt;
@@ -1033,7 +1045,7 @@
   }
   function drawBg(c) {
     const sk = skin();
-    if (!HB.skins.drawBg(c, W, H, { cy: CY })) {
+    if (!HB.skins.drawBg(c, W, H, { cy: CY, cells, R: S * .93, ty: TY })) {
       const g = c.createLinearGradient(0, 0, 0, H);
       g.addColorStop(0, sk.bg[0]); g.addColorStop(1, sk.bg[1]);
       c.fillStyle = g; c.fillRect(0, 0, W, H);
@@ -1575,7 +1587,7 @@
     drawParts(c);
     drawDragged(c);
     c.restore();
-    drawHud(c);
+    if (!demo) drawHud(c);
     drawBanner(c);
     drawDemo(c);
     if (whiteFlash > 0) { c.fillStyle = `rgba(${flashTint},${Math.min(1, whiteFlash) * .5})`; c.fillRect(0, 0, W, H); }
@@ -1606,7 +1618,7 @@
     const r = cv.getBoundingClientRect();
     return { x: (e.clientX - r.left) / r.width * W, y: (e.clientY - r.top) / r.height * H, touch: e.pointerType !== 'mouse' };
   }
-  cv.addEventListener('pointerdown', e => { e.preventDefault(); if (demo) { endDemo(); return; } try { cv.setPointerCapture(e.pointerId); } catch (err) {} down(pt(e)); });
+  cv.addEventListener('pointerdown', e => { e.preventDefault(); if (demo) return; try { cv.setPointerCapture(e.pointerId); } catch (err) {} down(pt(e)); });
   cv.addEventListener('pointermove', e => { if (drag) move(pt(e)); });
   cv.addEventListener('pointerup', () => up());
   cv.addEventListener('pointercancel', () => up());
@@ -1690,7 +1702,7 @@
       drag = ghost = preview = boltPreview = null;
     },
     _score: () => score,
-    COMBOS, startDemo, endDemo, _probe: probeCombo
+    COMBOS, startDemo, endDemo, demoCtl, demoProgress, _probe: probeCombo
   };
   window.hbSave = save;
 })();

@@ -37,6 +37,8 @@
     L('flame', 'Пламя', 350, 'art', ['#FF4E1A', '#FF8A00', '#FFB300', '#FF2D2D', '#FF6A00', '#FFC940'], ['#120604', '#2A0A04'], '#1A0C08'),
     L('donut', 'Пончики', 230, 'art', ['#FFB3C7', '#FFD89C', '#B5E8D5', '#C9B8FF', '#FFC9A8', '#A8E0FF'], ['#5A2342', '#2E1024'], '#4A1E38'),
     L('koi', 'Пруд кои', 260, 'art', ['#1F6F78', '#2A7F86', '#1B5E66', '#2F8C8F', '#246B73', '#2D7A80'], ['#0E3338', '#061A1D'], '#0A2427'),
+    L('snowglobe', 'Снежный шар', 300, 'art', ['#7FD3FF', '#FF8FB1', '#8FF0C4', '#FFD27A', '#B9A2FF', '#FF9E7A'], ['#16132E', '#120D1C'], '#1D2447'),
+    L('city', 'Ночной город', 330, 'art', ['#E8A04A', '#D9607A', '#3FB6A8', '#5B8DEF', '#9C6ADE', '#9CC85A'], ['#07080F', '#0A0A10'], '#141420'),
     L('rainbow', 'Радуга', 400, 'rainbow', ['#FF6B6B', '#FFC857', '#4ADE9C', '#4CC9F0', '#A78BFA', '#FF8FD1'], ['#1E1B3A', '#0E0C1F'], '#2A2656')
   ];
   const tier = p => p === 0 ? 'Базовый' : p < 120 ? 'Обычный' : p < 200 ? 'Редкий' : p < 300 ? 'Эпический' : 'Легендарный';
@@ -256,6 +258,7 @@
     drawBg(c, w, h, info) { const a = HB.skins.art[HB.skins.current().id]; return !!(a && a.bg && a.bg(c, w, h, info)); },
     drawOver(c, info) { const a = HB.skins.art[HB.skins.current().id]; if (a && a.over) a.over(c, info); },
     onPlace(points, group, center) { const a = HB.skins.art[HB.skins.current().id]; if (a && a.place) a.place(points, group, center); },
+    stir(k, x, y) { const a = HB.skins.art[HB.skins.current().id]; if (a && a.stir) a.stir(k, x, y); },
     breakFx(api, x, y, color, v) { const a = HB.skins.art[HB.skins.current().id]; return !!(a && a.breakFx && a.breakFx(api, x, y, color, v)); },
     addWave(x, y, s, cells) {
       const reach = Math.max(0, ...cells.map(([cx, cy]) => Math.hypot(cx - x, cy - y)));

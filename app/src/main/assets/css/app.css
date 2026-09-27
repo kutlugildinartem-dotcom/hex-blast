@@ -287,3 +287,24 @@ input[type="range"] { width: 100%; accent-color: var(--amber); height: 28px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
 }
+
+/* ---------- просмотр комбо ---------- */
+.combo-item { cursor: pointer; border-radius: 14px; margin: 0 -8px; padding: 12px 8px; transition: background .15s; }
+.combo-item:active { background: rgba(255, 255, 255, .06); }
+.combo-item .play { flex: none; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: rgba(255, 200, 87, .16); color: #FFD66B; font-size: 13px; padding-left: 2px; }
+.viewer { position: fixed; inset: 0; z-index: 60; touch-action: none; user-select: none; -webkit-user-select: none; }
+.v-top { position: absolute; left: 0; right: 0; top: 0; padding: calc(10px + var(--inset-top, 0px)) 16px 26px; background: linear-gradient(rgba(8, 6, 22, .92) 55%, rgba(8, 6, 22, 0)); }
+.v-bar { display: flex; align-items: center; gap: 10px; }
+.v-close { width: 38px; height: 38px; border-radius: 50%; background: rgba(255, 255, 255, .1); color: var(--text); font-size: 16px; font-weight: 900; }
+.v-dots { flex: 1; text-align: right; font-weight: 800; font-size: 13px; color: rgba(244, 241, 255, .55); }
+.v-card { margin-top: 8px; transition: transform .28s cubic-bezier(.2, 1.2, .4, 1), opacity .2s; }
+.v-card.out-up { transform: translateY(-26px); opacity: 0; transition: transform .16s ease-in, opacity .16s; }
+.v-card.out-down { transform: translateY(26px); opacity: 0; transition: transform .16s ease-in, opacity .16s; }
+.v-card small { color: var(--coral); font-weight: 900; letter-spacing: .08em; text-transform: uppercase; font-size: 11px; }
+.v-card h3 { font-family: var(--fd, inherit); font-size: 26px; line-height: 1.05; margin: 2px 0 4px; color: #FFE08A; }
+.v-card p { font-size: 14px; line-height: 1.35; color: rgba(244, 241, 255, .82); margin: 0; }
+.v-prog { height: 3px; border-radius: 3px; background: rgba(255, 255, 255, .12); margin-top: 10px; overflow: hidden; }
+.v-prog i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #FFC857, #FF8FD1); }
+.v-state { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%) scale(.8); opacity: 0; transition: opacity .18s, transform .25s cubic-bezier(.2, 1.4, .4, 1); padding: 12px 18px; border-radius: 22px; background: rgba(8, 6, 22, .62); color: #fff; font-weight: 900; font-size: 18px; pointer-events: none; white-space: nowrap; }
+.v-state.on { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+.v-hint { position: absolute; left: 16px; right: 16px; bottom: calc(18px + var(--inset-bottom, 0px)); text-align: center; font-size: 12px; font-weight: 700; color: rgba(244, 241, 255, .55); pointer-events: none; transition: opacity .6s; }

@@ -7,6 +7,7 @@
 (() => {
   'use strict';
   const HB = window.HB;
+  let lp = null, held = false;
   let ac = null, master = null, verb = null, noise = null, brown = null;
 
   function init() {
@@ -17,7 +18,8 @@
     comp.attack.value = .003; comp.release.value = .25;
     master = ac.createGain();
     master.gain.value = volume();
-    master.connect(comp); comp.connect(ac.destination);
+    lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 20000; lp.Q.value = .5;
+    master.connect(lp); lp.connect(comp); comp.connect(ac.destination);
 
     const conv = ac.createConvolver();
     const len = Math.floor(ac.sampleRate * 2.2), ir = ac.createBuffer(2, len, ac.sampleRate);
@@ -447,7 +449,16 @@
   const pack = id => PACKS[id || (HB.profile && HB.profile.sound)] || PACKS.xylo;
 
   const sfx = {
-    unlock() { if (HB.settings.sound) { init(); if (ac && ac.state === 'suspended') ac.resume(); } },
+    unlock() { if (HB.settings.sound && !held) { init(); if (ac && ac.state === 'suspended') ac.resume(); } },
+    /** Пауза просмотра: весь звук замирает вместе с картинкой. */
+    hold(on) { held = on; if (!ac) return; if (on) ac.suspend(); else if (HB.settings.sound) ac.resume(); },
+    /** Замедление: звук уходит «под воду», а вход в замедление слышен как тянущаяся плёнка. */
+    slowTape(on) {
+      if (!ready() || !lp) return; const t = ac.currentTime;
+      lp.frequency.cancelScheduledValues(t); lp.frequency.setValueAtTime(lp.frequency.value, t);
+      lp.frequency.exponentialRampToValueAtTime(on ? 650 : 20000, t + (on ? .35 : .25));
+      if (on) { const o = ac.createOscillator(); o.type = 'sine'; o.frequency.setValueAtTime(260, t); o.frequency.exponentialRampToValueAtTime(55, t + .5); const g = envGain(t, .02, .12, .5); o.connect(g); out(g, 0, .4); o.start(t); o.stop(t + .6); }
+    },
     setVolume() { if (master) master.gain.setTargetAtTime(volume(), ac.currentTime, .05); },
     // Взятие фигуры намеренно беззвучно: «капля» раздражала, хватает вибро-щелчка.
     pick() {},

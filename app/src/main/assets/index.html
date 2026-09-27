@@ -142,7 +142,7 @@
 <section id="combos" class="screen page" hidden>
   <header class="page-head"><button class="back" type="button" data-back aria-label="Назад">‹</button><h2>Комбо</h2></header>
   <div class="page-body">
-    <p class="muted small">Нажми «Смотреть», и комбо сыграет прямо на поле со всеми эффектами и звуком. Твоя партия подождёт и вернётся как была.</p>
+    <p class="muted small">Нажми на комбо, и оно сыграет прямо на поле. Зажми экран, чтобы смотреть замедленно, нажми для паузы, листай вверх к следующему. Твоя партия подождёт.</p>
     <div id="combo-groups"></div>
   </div>
 </section>
@@ -167,6 +167,16 @@
   </div>
 </section>
 
+<section id="viewer" class="viewer" hidden>
+  <div class="v-top">
+    <div class="v-bar"><button class="v-close" id="v-close" type="button" aria-label="Закрыть">✕</button><div class="v-dots" id="v-count"></div></div>
+    <div class="v-card" id="v-card"><small id="v-group"></small><h3 id="v-name"></h3><p id="v-desc"></p></div>
+    <div class="v-prog"><i id="v-prog"></i></div>
+  </div>
+  <div class="v-state" id="v-state"></div>
+  <div class="v-hint" id="v-hint">Зажми, чтобы замедлить · нажми для паузы · листай вверх</div>
+</section>
+
 <div id="toast" role="status" hidden></div>
 
 <script src="js/core.js"></script>
@@ -175,6 +185,7 @@
 <script src="js/skinart.js"></script>
 <script src="js/skinart2.js"></script>
 <script src="js/skinart3.js"></script>
+<script src="js/skinart4.js"></script>
 <script src="js/fx.js"></script>
 <script src="js/game.js"></script>
 <script src="js/ui.js"></script>
