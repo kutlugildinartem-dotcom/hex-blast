@@ -177,6 +177,12 @@ h1, h2, h3 { font-family: var(--fd); margin: 0; line-height: 1.05; }
 .shop-tabs button { flex: 1; padding: 9px 2px; border-radius: 11px; font-weight: 900; font-size: 13px; color: var(--muted); transition: background .15s, color .15s; }
 .shop-tabs button.on { background: var(--amber); color: #2A1800; box-shadow: 0 3px 0 var(--amber-deep); }
 .skin-meta small.desc { color: var(--muted); font-size: 12px; line-height: 1.3; margin-top: 2px; }
+.combo-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.combo-list li { display: flex; flex-direction: column; gap: 1px; padding: 9px 12px; border-radius: 12px; background: rgba(255, 200, 87, .08); border: 1px solid rgba(255, 200, 87, .18); }
+.combo-list li b { font-size: 14px; color: var(--amber); }
+.combo-list li span { font-size: 12.5px; color: var(--soft); line-height: 1.35; }
+.combo-list li.off { opacity: .38; background: rgba(255, 255, 255, .03); border-color: rgba(255, 255, 255, .06); }
+.combo-list li.off b { color: var(--muted); }
 .listen { margin: 0 10px 4px; padding: 7px; border-radius: 12px; font-weight: 900; font-size: 13px; background: rgba(76, 201, 240, .15); color: #BFF1FF; }
 .listen.playing { background: rgba(76, 201, 240, .35); }
 .page-head h2 { font-size: 32px; font-weight: 800; flex: 1; }

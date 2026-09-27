@@ -11,7 +11,7 @@
   const AMBER = '#FFC857', CORAL = '#FF6B6B', MINT = '#4ADE9C', SKY = '#4CC9F0', PINK = '#FF8FD1', BOLTC = '#9FD8FF';
   const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, -1], [-1, 1]];
   const DIRC = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];   // по кругу, для поворотов огня
-  const FIREC = '#FF9A3C', ICEC = '#BDEBFF';
+  const FIREC = '#FF9A3C', ICEC = '#BDEBFF', SUNC = '#FFD36B';
   let H = 640, TY = 548, CY = 320, TOP = 0, BOT = 0, insetTop = 0, insetBottom = 0;
   const skin = () => HB.skins.current();
   const colorOf = ci => skin().colors[ci] || '#888888';
@@ -25,7 +25,7 @@
   const cells = [], map = new Map();
   for (let q = -4; q <= 4; q++) for (let r = -4; r <= 4; r++) {
     if (Math.abs(q + r) > 4) continue;
-    const cl = { idx: cells.length, q, r, x: 0, y: 0, ci: -1, v: 0, born: 0, bomb: false, fire: false, ice: false, frozen: false, frzT: 0, frzAng: 0, pt: 9, fx: null, gt: -1 };
+    const cl = { idx: cells.length, q, r, x: 0, y: 0, ci: -1, v: 0, born: 0, bomb: false, fire: false, ice: false, frozen: false, frzT: 0, frzAng: 0, sun: false, sunStage: 0, sunGrowT: -9, pt: 9, fx: null, gt: -1 };
     cells.push(cl); map.set(key(q, r), cl);
   }
   const lines = [];
@@ -47,18 +47,18 @@
   let combo = 0, miss = 0, stat = { lines: 0, maxCombo: 0, clears: 0 };
   let pending = [], charge = 0, undoCharges = 0, snap = null, lastAward = 0, holdHint = false;
   let mode = 'idle', inputOn = false, endT = 0, time = 0;
-  let freeze = 0, punch = 0, shake = 0, bgFlash = 0, bgFlashColor = '#A78BFA', whiteFlash = 0, idleT = 0, trailT = 0;
-  let parts = [], rings = [], floats = [], banners = [], splats = [], booms = [], strikes = [], hudFx = [], flames = [], crackT = 1, ripple = null, hudAcc = 0, flashTint = '255,245,230';
+  let slowmo = 0, freeze = 0, punch = 0, shake = 0, bgFlash = 0, bgFlashColor = '#A78BFA', whiteFlash = 0, idleT = 0, trailT = 0;
+  let parts = [], rings = [], floats = [], banners = [], splats = [], booms = [], strikes = [], hudFx = [], flames = [], crackT = 1, sunBeams = [], sunsOn = [], ripple = null, hudAcc = 0, flashTint = '255,245,230';
   const bgHex = Array.from({ length: 12 }, () => ({ x: rnd(0, W), y: rnd(0, 900), r: rnd(18, 60), s: rnd(4, 12), a: rnd(0, TAU), va: rnd(-.15, .15) }));
   const stars = Array.from({ length: 70 }, () => ({ x: rnd(0, W), y: rnd(0, 900), s: rnd(.8, 2), p: rnd(0, TAU) }));
 
   const pieceAt = i => i === 3 ? hold : tray[i];
-  function makePiece(i, delay, shape, ci, bomb = -1, vs = null, bolt = -1, fire = -1, ice = -1) {
+  function makePiece(i, delay, shape, ci, bomb = -1, vs = null, bolt = -1, fire = -1, ice = -1, sun = -1) {
     const offs = shape.map(([dq, dr]) => [S * R3 * (dq + dr / 2), S * 1.5 * dr]);
     const mx = offs.reduce((a, o) => a + o[0], 0) / offs.length, my = offs.reduce((a, o) => a + o[1], 0) / offs.length;
     const xs = offs.map(o => o[0]), ys = offs.map(o => o[1]);
     return {
-      shape, ci, bomb, bolt, fire, ice, vs: vs || shape.map(() => rand(10)), seed: rand(997),
+      shape, ci, bomb, bolt, fire, ice, sun, vs: vs || shape.map(() => rand(10)), seed: rand(997),
       offs: offs.map(o => [o[0] - mx, o[1] - my]),
       w: Math.max(...xs) - Math.min(...xs) + S * R3, h: Math.max(...ys) - Math.min(...ys) + S * 2,
       x: sx(i), y: TY + 40, sc: 0, scV: 0, rot: 0, delay, fits: true, fa: 1
@@ -89,7 +89,7 @@
   function earnSpecial() {
     const t = nextSpecial();
     pending.push(t);
-    showBanner(t === 'bolt' ? 'МОЛНИЯ ЗАРЯЖЕНА' : t === 'fire' ? 'КОСТЁР ГОТОВ' : t === 'ice' ? 'ЛЁД ГОТОВ' : 'БОМБА ЗАРЯЖЕНА', t === 'bolt' ? BOLTC : t === 'fire' ? FIREC : t === 'ice' ? ICEC : CORAL);
+    showBanner(t === 'bolt' ? 'МОЛНИЯ ЗАРЯЖЕНА' : t === 'fire' ? 'КОСТЁР ГОТОВ' : t === 'ice' ? 'ЛЁД ГОТОВ' : t === 'sun' ? 'СОЛНЦЕ ГОТОВО' : 'БОМБА ЗАРЯЖЕНА', t === 'bolt' ? BOLTC : t === 'fire' ? FIREC : t === 'ice' ? ICEC : t === 'sun' ? SUNC : CORAL);
   }
   /** Путь огня от костра: случайно прямо, змейкой или зигзагом по занятым сотам. */
   function firePath(start, n) {
@@ -136,7 +136,7 @@
       const give = (p, type) => { p[type] = rand(p.shape.length); };
       if (HB.settings.bombSource === 'random') ps.forEach(p => { if (Math.random() < .08) give(p, nextSpecial()); });
       while (pending.length) {
-        const free = ps.filter(p => p.bomb < 0 && p.bolt < 0 && p.fire < 0 && p.ice < 0);
+        const free = ps.filter(p => p.bomb < 0 && p.bolt < 0 && p.fire < 0 && p.ice < 0 && p.sun < 0);
         if (!free.length) break;
         give(free[rand(free.length)], pending.shift());
       }
@@ -146,17 +146,17 @@
   }
 
   /* ---------- сохранение ---------- */
-  const serPiece = p => p ? { shape: p.shape, ci: p.ci, bomb: p.bomb, bolt: p.bolt, fire: p.fire, ice: p.ice, vs: p.vs } : null;
+  const serPiece = p => p ? { shape: p.shape, ci: p.ci, bomb: p.bomb, bolt: p.bolt, fire: p.fire, ice: p.ice, sun: p.sun, vs: p.vs } : null;
   function snapshot() {
     return {
-      cells: cells.map(c => [c.ci, c.bomb ? 1 : 0, c.v, c.fire ? 1 : 0, c.ice ? 1 : 0, c.frozen ? 1 : 0]), tray: tray.map(serPiece), hold: serPiece(hold),
+      cells: cells.map(c => [c.ci, c.bomb ? 1 : 0, c.v, c.fire ? 1 : 0, c.ice ? 1 : 0, c.frozen ? 1 : 0, c.sun ? 1 : 0, c.sunStage]), tray: tray.map(serPiece), hold: serPiece(hold),
       score, combo, miss, stat: Object.assign({}, stat), pending: pending.slice(), charge, recordShown
     };
   }
   function restore(s) {
-    cells.forEach((c, i) => { c.ci = s.cells[i][0]; c.bomb = !!s.cells[i][1]; c.fire = !!s.cells[i][3]; c.ice = !!s.cells[i][4]; c.frozen = !!s.cells[i][5]; c.frzT = -9; c.v = s.cells[i][2] || (i * 7) % 10; c.born = time; c.pt = 9; c.fx = null; c.gt = -1; });
-    tray = s.tray.map((p, i) => p ? makePiece(i, i * .06, p.shape, p.ci, p.bomb, p.vs, p.bolt == null ? -1 : p.bolt, p.fire == null ? -1 : p.fire, p.ice == null ? -1 : p.ice) : null);
-    hold = s.hold ? makePiece(3, .1, s.hold.shape, s.hold.ci, s.hold.bomb, s.hold.vs, s.hold.bolt == null ? -1 : s.hold.bolt, s.hold.fire == null ? -1 : s.hold.fire, s.hold.ice == null ? -1 : s.hold.ice) : null;
+    cells.forEach((c, i) => { c.ci = s.cells[i][0]; c.bomb = !!s.cells[i][1]; c.fire = !!s.cells[i][3]; c.ice = !!s.cells[i][4]; c.frozen = !!s.cells[i][5]; c.frzT = -9; c.sun = !!s.cells[i][6]; c.sunStage = s.cells[i][7] || 0; c.sunGrowT = -9; c.v = s.cells[i][2] || (i * 7) % 10; c.born = time; c.pt = 9; c.fx = null; c.gt = -1; });
+    tray = s.tray.map((p, i) => p ? makePiece(i, i * .06, p.shape, p.ci, p.bomb, p.vs, p.bolt == null ? -1 : p.bolt, p.fire == null ? -1 : p.fire, p.ice == null ? -1 : p.ice, p.sun == null ? -1 : p.sun) : null);
+    hold = s.hold ? makePiece(3, .1, s.hold.shape, s.hold.ci, s.hold.bomb, s.hold.vs, s.hold.bolt == null ? -1 : s.hold.bolt, s.hold.fire == null ? -1 : s.hold.fire, s.hold.ice == null ? -1 : s.hold.ice, s.hold.sun == null ? -1 : s.hold.sun) : null;
     score = s.score; combo = s.combo; miss = s.miss; stat = Object.assign({ lines: 0, maxCombo: 0, clears: 0 }, s.stat);
     pending = Array.isArray(s.pending) ? s.pending.slice() : Array(s.pendingBomb || 0).fill('bomb'); charge = s.charge || 0; recordShown = !!s.recordShown;
     drag = ghost = preview = null;
@@ -320,7 +320,7 @@
     const pc = pieceAt(drag.i), placed = [];
     pc.shape.forEach(([dq, dr], k) => {
       const cl = map.get(key(ghost.aq + dq, ghost.ar + dr));
-      cl.ci = pc.ci; cl.bomb = k === pc.bomb; cl.fire = k === pc.fire; cl.ice = k === pc.ice; cl.v = pc.vs[k] | 0; cl.born = time; cl.pt = 0; placed.push(cl);
+      cl.ci = pc.ci; cl.bomb = k === pc.bomb; cl.fire = k === pc.fire; cl.ice = k === pc.ice; cl.sun = k === pc.sun; if (cl.sun) { cl.sunStage = 0; cl.sunGrowT = time; } cl.v = pc.vs[k] | 0; cl.born = time; cl.pt = 0; placed.push(cl);
     });
     if (drag.i === 3) hold = null; else tray[drag.i] = null;
     score += pc.shape.length;
@@ -339,15 +339,25 @@
     }
     if (pc.fire >= 0) { setTimeout(() => { HB.sfx.ignite(); HB.haptic('ignite'); }, 60); const fc = placed[pc.fire]; for (let i = 0; i < 12; i++) parts.push({ k: 'ember', soft: true, x: fc.x, y: fc.y, vx: rnd(-50, 50), vy: rnd(-150, -60), g: -20, t: 0, life: rnd(.6, 1.1), color: '#FFB347', r: rnd(1.2, 2.2) }); }
 
+    if (pc.sun >= 0) { HB.sfx.sunPlace(); HB.haptic('sungrow'); }
+    const autoSuns = [];
+    let grew = 0;
+    cells.forEach(c => {
+      if (!c.sun || c.ci < 0 || placed.includes(c)) return;
+      if (c.sunStage >= 3) autoSuns.push(c);
+      else { c.sunStage++; c.sunGrowT = time; grew = Math.max(grew, c.sunStage); }
+    });
+    if (grew) { HB.sfx.sunGrow(grew); HB.haptic('sungrow'); if (grew >= 3) showBanner('СОЛНЦЕ НА ПРЕДЕЛЕ', SUNC); }
     const full = lines.filter(l => l.every(cl => cl.ci >= 0));
     const boltCell = pc.bolt >= 0 ? placed[pc.bolt] : null;
     const strike = boltCell ? strikeLineFor(boltCell, null) : null;
-    if (full.length || strike) {
+    if (full.length || strike || autoSuns.length) {
       combo++; miss = 0;
       stat.lines += full.length; stat.maxCombo = Math.max(stat.maxCombo, combo);
       const u = new Set(), delay = new Map();
       full.forEach(l => l.forEach(cl => { u.add(cl); delay.set(cl, Math.hypot(cl.x - ox, cl.y - oy) / 520); }));
       const lineCells = u.size;
+      autoSuns.forEach(c => { if (!u.has(c)) { u.add(c); delay.set(c, .05); } });
       let strikeCells = 0, bombPts = 0, ringList = [], charged = false;
       const zapped = new Set();
       if (strike) {
@@ -370,13 +380,13 @@
       }
       // Цепочка особых сот: бомбы и костры поджигают друг друга, молния заряжает и тех и других.
       const power = HB.settings.bombPower === 2 ? 2 : 1;
-      const queue = [...u].filter(c => c.bomb || c.fire || c.ice), done = new Set(), burnt = new Set(), blasted = new Set(), blastFrom = new Map(), frostAt = new Map();
-      let ices = 0, iceMode = '';
+      const queue = [...u].filter(c => c.bomb || c.fire || c.ice || c.sun), done = new Set(), sunburnt = new Set(), sunFrom = new Map(), prismCol = new Map(), burnt = new Set(), blasted = new Set(), blastFrom = new Map(), frostAt = new Map();
+      let ices = 0, iceMode = '', suns = 0, sunMode = '';
       let fires = 0, napalm = false, storm = false, fireBlast = false;
       const addCell = (c, d) => {
         if (!u.has(c)) { if (c.ci < 0) return; u.add(c); delay.set(c, d); }
         else delay.set(c, Math.min(delay.get(c), d));
-        if ((c.bomb || c.fire || c.ice) && !done.has(c)) queue.push(c);
+        if ((c.bomb || c.fire || c.ice || c.sun) && !done.has(c)) queue.push(c);
       };
       while (queue.length) {
         const b = queue.shift();
@@ -392,6 +402,37 @@
           booms.push({ x: b.x, y: b.y, t: -at, fired: false, power: pw, pts: bp, charged: zap, napalm: nap });
           for (const c of cells) if (c !== b && c.ci >= 0 && cdist(b, c) <= pw) { blasted.add(c); if (!blastFrom.has(c)) blastFrom.set(c, b); addCell(c, at + .12 + cdist(b, c) * .07); }
         }
+        if (b.sun) {
+          suns++;
+          const zap = zapped.has(b), hot = burnt.has(b), boom = blasted.has(b), from = sunFrom.get(b);
+          let R = Math.max(1, b.sunStage) + (hot || boom ? 1 : 0);
+          if (zap) R = Math.max(R, 3);
+          const zone = cells.filter(c => c !== b && c.ci >= 0 && cdist(b, c) <= R);
+          const prism = zone.some(c => c.ice || c.frozen);
+          const mode = zap ? 'storm' : prism ? 'prism' : boom ? 'nuke' : hot ? 'flare' : from ? 'binary' : 'beam';
+          if (!sunMode || mode !== 'beam') sunMode = mode;
+          const bp = 100 * Math.max(1, b.sunStage) * mult * (boom ? 3 : mode === 'beam' ? 1 : 2);
+          bombPts += bp;
+          const t0 = at + .45, extra = { lines: [], rays: [] };
+          delay.set(b, Math.max(delay.get(b), t0));
+          zone.forEach(c => { sunburnt.add(c); if (c.sun && !sunFrom.has(c)) sunFrom.set(c, b); addCell(c, t0 + cdist(b, c) * .22); });
+          if (zap) lines.filter(l => l.includes(b)).forEach(l => {
+            const srt = l.slice().sort((p, q) => p.x - q.x || p.y - q.y);
+            extra.lines.push([srt[0].x, srt[0].y, srt[srt.length - 1].x, srt[srt.length - 1].y]);
+            l.forEach(c => { if (c !== b && c.ci >= 0) { sunburnt.add(c); addCell(c, t0 + .3 + Math.hypot(c.x - b.x, c.y - b.y) / 900); } });
+          });
+          if (prism) for (let d = 0; d < 6; d++) {
+            let q = b.q, r = b.r, end = null;
+            for (let s = 1; s <= R + 4; s++) {
+              q += DIRC[d][0]; r += DIRC[d][1];
+              const c = map.get(key(q, r)); if (!c) break;
+              end = c;
+              if (s > R && c.ci >= 0) { prismCol.set(c, d); sunburnt.add(c); addCell(c, t0 + .3 + s * .06); }
+            }
+            if (end) extra.rays.push([end.x, end.y, d]);
+          }
+          booms.push({ x: b.x, y: b.y, t: -at, fired: false, sun: true, mode, R, pts: bp, lines: extra.lines, rays: extra.rays, from: from ? [from.x, from.y] : null });
+        }
         if (b.ice) {
           ices++;
           const zap = zapped.has(b), fromBomb = blastFrom.get(b), hot = burnt.has(b);
@@ -405,7 +446,7 @@
             lines.filter(l => l.includes(b)).forEach(l => l.forEach(c => {
               if (c === b || c.ci < 0) return;
               const dd = Math.hypot(c.x - b.x, c.y - b.y) / (S * R3);
-              frostAt.set(c, at + dd * .08); addCell(c, at + .6 + dd * .05);
+              frostAt.set(c, at + dd * .15); addCell(c, at + 1.15 + dd * .03);
             }));
           } else if (mode === 'fan') {
             // Взрыв бомбы гонит лёд от себя: веер шириной в 5 линий по направлению удара.
@@ -414,14 +455,15 @@
             cells.forEach(c => {
               if (c === b || c.ci < 0) return;
               const vx = c.x - b.x, vy = c.y - b.y, proj = (vx * dx + vy * dy) / step, perp = Math.abs(vx * dy - vy * dx) / step;
-              if (proj > .3 && proj <= 5.2 && perp <= 2.1) { frostAt.set(c, at + proj * .08); addCell(c, at + .35 + proj * .07); }
+              if (proj > .3 && proj <= 5.2 && perp <= 2.1) { frostAt.set(c, at + proj * .13); addCell(c, at + .6 + proj * .08); }
             });
           } else if (mode === 'steam') {
             cells.forEach(c => { if (c !== b && c.ci >= 0 && cdist(b, c) <= 2) addCell(c, at + .1 + cdist(b, c) * .06); });
           } else {
-            ringOf(b).forEach(c => { if (c.ci >= 0) { frostAt.set(c, at - .05); addCell(c, at + .1); } });
+            ringOf(b).forEach(c => { if (c.ci >= 0) { frostAt.set(c, at); addCell(c, at + .38); } });
           }
           booms.push({ x: b.x, y: b.y, t: -at, fired: false, ice: true, mode, dir, pts: bp });
+          if (mode === 'storm') booms.push({ x: b.x, y: b.y, t: -(at + 1.15), fired: false, ice: true, mode: 'stormhit', pts: 0 });
         }
         if (b.fire) {
           fires++;
@@ -445,9 +487,9 @@
       let frozenHit = 0;
       u.forEach(c => {
         if (c.frozen) frozenHit++;
-        c.fx = { ci: c.ci, v: c.v, bomb: c.bomb, fire: c.fire, ice: c.ice, frozen: c.frozen, frost: frostAt.has(c) ? frostAt.get(c) : null, frzAng: c.frzAng, burning: burnt.has(c), charged: c.bomb && zapped.has(c), age: time - c.born, delay: delay.get(c), t: 0, burst: false, hole: { cx: ox, cy: oy } };
+        c.fx = { ci: c.ci, v: c.v, bomb: c.bomb, fire: c.fire, ice: c.ice, sun: c.sun, sunStage: c.sunStage, sunburn: sunburnt.has(c), prism: prismCol.has(c) ? prismCol.get(c) : null, frozen: c.frozen, frost: frostAt.has(c) ? frostAt.get(c) : null, frzAng: c.frzAng, burning: burnt.has(c), charged: c.bomb && zapped.has(c), age: time - c.born, delay: delay.get(c), t: 0, burst: false, hole: { cx: ox, cy: oy } };
         delays.push(c.fx.delay); xs.push((c.x - 180) / 180);
-        c.ci = -1; c.bomb = false; c.fire = false; c.ice = false; c.frozen = false;
+        c.ci = -1; c.bomb = false; c.fire = false; c.ice = false; c.frozen = false; c.sun = false;
       });
       const BC = HB.fx.bursts[HB.profile.burst];
       if (BC) BC.clear(fxApi, ox, oy, { lines: full.length || 1 });
@@ -458,6 +500,7 @@
       if (charged) bits.push('ГРОМОВОЙ ВЗРЫВ');
       else if (napalm) bits.push('НАПАЛМ');
       else if (nb) bits.push(nb > 1 ? 'БАБАХ ×' + nb : 'БАБАХ!');
+      if (suns) bits.unshift({ storm: 'СОЛНЕЧНАЯ БУРЯ', prism: 'ПРИЗМА', nuke: 'ТЕРМОЯД', flare: 'ПРОТУБЕРАНЕЦ', binary: 'ДВОЙНАЯ ЗВЕЗДА', beam: 'СОЛНЕЧНАЯ ВСПЫШКА' }[sunMode] || 'СОЛНЦЕ!');
       if (ices) bits.push({ storm: 'ЛЕДЯНОЙ РАЗРЯД', fan: 'ЛЕДЯНОЙ ВЕЕР', steam: 'ПАРОВОЙ ВЗРЫВ', burst: 'ЛЕДЯНОЙ ВЗРЫВ' }[iceMode] || 'ЛЁД!');
       else if (frozenHit >= 3) bits.push('ЗВОН ЛЬДА');
       pts += frozenHit * 20;
@@ -467,7 +510,7 @@
       if (cells.every(c => c.ci < 0)) { pts += 300; stat.clears++; bits.push('ЧИСТОЕ ПОЛЕ'); confetti(); }
       score += pts;
       floatText('+' + U.fmt(pts), ox, oy, 30 + Math.min(full.length, 4) * 5);
-      if (bits.length) showBanner(bits.join(' · '), charged ? '#C9E8FF' : ices ? ICEC : fires ? FIREC : nb ? CORAL : strike ? BOLTC : comboColor(combo));
+      if (bits.length) showBanner(bits.join(' · '), suns ? SUNC : charged ? '#C9E8FF' : ices ? ICEC : fires ? FIREC : nb ? CORAL : strike ? BOLTC : comboColor(combo));
       rings.push({ x: ox, y: oy, t: 0, color: colorOf(pc.ci), big: false });
       shake = Math.max(shake, 5 + full.length * 3 + Math.min(combo, 6));
       bgFlash = 1; bgFlashColor = colorOf(pc.ci);
@@ -547,11 +590,11 @@
     return true;
   }
   function newGame() {
-    cells.forEach(c => { c.ci = -1; c.bomb = false; c.fire = false; c.ice = false; c.frozen = false; c.pt = 9; c.fx = null; c.gt = -1; });
+    cells.forEach(c => { c.ci = -1; c.bomb = false; c.fire = false; c.ice = false; c.frozen = false; c.sun = false; c.pt = 9; c.fx = null; c.gt = -1; });
     score = shown = 0; combo = miss = 0; stat = { lines: 0, maxCombo: 0, clears: 0 };
     pending = []; charge = 0; undoCharges = 0; snap = null; lastAward = 0; hold = null; holdHint = false;
     best = HB.best(); bestAtStart = best; recordShown = false; isRecord = false;
-    parts = []; rings = []; floats = []; banners = []; splats = []; booms = []; strikes = []; hudFx = []; flames = [];
+    parts = []; rings = []; floats = []; banners = []; splats = []; booms = []; strikes = []; hudFx = []; flames = []; sunBeams = [];
     drag = ghost = preview = null; idleT = 0;
     refill(); updateFits();
     mode = 'play';
@@ -565,7 +608,7 @@
     o[k] += o[k + 'V'] * dt;
   }
   function igniteFx(b) {
-    HB.sfx.bonfire(b.storm); HB.haptic('fire');
+    HB.sfx.bonfire(b.storm); HB.sfx.fireRun(b.storm ? 1.9 : 1.4, b.storm); HB.haptic('fire');
     if (b.pts) floatText('+' + U.fmt(b.pts), b.x, b.y - 20, 26, FIREC);
     shake = Math.max(shake, b.storm ? 24 : 13); whiteFlash = Math.max(whiteFlash, b.storm ? 1.1 : .55); flashTint = '255,190,120';
     freeze = Math.max(freeze, .08); punch = Math.max(punch, .06);
@@ -587,14 +630,16 @@
     if (b.pts) floatText('+' + U.fmt(b.pts), b.x, b.y - 20, 26, ICEC);
     flashTint = '210,240,255';
     if (b.mode === 'storm') {
-      HB.sfx.iceStorm(); HB.haptic('icestorm');
-      whiteFlash = Math.max(whiteFlash, .8); shake = Math.max(shake, 12);
-      setTimeout(() => {
-        whiteFlash = 1.5; shake = Math.max(shake, 30); freeze = Math.max(freeze, .18); punch = Math.max(punch, .11);
-        rings.push({ x: b.x, y: b.y, t: 0, color: ICEC, big: true, huge: true });
-        rings.push({ x: b.x, y: b.y, t: -.07, color: '#FFFFFF', big: true, huge: true });
-      }, 620);
-      iceShards(b.x, b.y, '#BDEBFF', 4);
+      HB.sfx.iceCrawl(); HB.haptic('freeze');
+      whiteFlash = Math.max(whiteFlash, .5); shake = Math.max(shake, 8);
+      for (let i = 0; i < 20; i++) parts.push({ k: 'glow', soft: true, x: b.x + rnd(-30, 30), y: b.y + rnd(-30, 30), vx: rnd(-40, 40), vy: rnd(-30, 30), g: 0, t: 0, life: rnd(1, 1.6), color: 'rgba(210,245,255,.9)', r: rnd(1, 2.2) });
+    } else if (b.mode === 'stormhit') {
+      HB.sfx.iceStormHit(); HB.haptic('icestorm');
+      whiteFlash = 1.6; shake = Math.max(shake, 32); freeze = Math.max(freeze, .08); slowmo = Math.max(slowmo, .75); punch = Math.max(punch, .12);
+      rings.push({ x: b.x, y: b.y, t: 0, color: ICEC, big: true, huge: true });
+      rings.push({ x: b.x, y: b.y, t: -.07, color: '#FFFFFF', big: true, huge: true });
+      rings.push({ x: b.x, y: b.y, t: -.16, color: '#9FD8FF', big: true, huge: true });
+      iceShards(b.x, b.y, '#BDEBFF', 6);
     } else if (b.mode === 'fan') {
       HB.sfx.iceFan(pan); HB.haptic('shatter');
       whiteFlash = Math.max(whiteFlash, .9); shake = Math.max(shake, 20); freeze = Math.max(freeze, .1);
@@ -612,7 +657,29 @@
       iceShards(b.x, b.y, '#BDEBFF', 3);
     }
   }
+  function sunVapor(x, y, prism) {
+    const col = prism != null ? HB.fx.RAINBOW[prism % 6] : 'rgba(255,241,192,.95)';
+    for (let i = 0; i < 8; i++) parts.push({ k: 'glow', soft: true, x: x + rnd(-10, 10), y: y + rnd(-10, 10), vx: rnd(-30, 30), vy: rnd(-110, -40), g: -20, t: 0, life: rnd(.9, 1.5), color: i % 2 ? col : 'rgba(255,255,240,.95)', r: rnd(1.4, 2.6) });
+    for (let i = 0; i < 3; i++) parts.push({ k: 'star4', soft: true, x: x + rnd(-8, 8), y: y + rnd(-8, 8), vx: 0, vy: rnd(-40, -10), g: 0, t: 0, life: rnd(.7, 1.1), color: prism != null ? col : '#FFFFFF', r: rnd(3, 6) });
+    parts.push({ k: 'flash', x, y, vx: 0, vy: 0, t: 0, life: .4, color: '#FFFFFF', r: 28, soft: true });
+  }
+  function sunFx(b) {
+    HB.sfx.sunBeam(b.R, b.mode); HB.haptic('sun');
+    if (b.pts) floatText('+' + U.fmt(b.pts), b.x, b.y - 26, 32, SUNC);
+    const w = 13 + b.R * 5;
+    sunBeams.push({ kind: 'sky', x: b.x, y: b.y, t: 0, life: 1.7, w });
+    flashTint = '255,242,215'; whiteFlash = 1.7; shake = Math.max(shake, 26 + b.R * 3); punch = Math.max(punch, .12); slowmo = Math.max(slowmo, .9);
+    bgFlash = 1; bgFlashColor = '#FFD36B';
+    for (let d = 0; d <= b.R; d++) rings.push({ x: b.x, y: b.y, t: -(.42 + d * .22), color: d % 2 ? '#FFB347' : '#FFF1C0', big: true, huge: d >= 2 });
+    for (let i = 0; i < 46; i++) parts.push({ k: 'glow', soft: true, x: b.x + rnd(-w, w), y: rnd(-20, b.y), vx: rnd(-8, 8), vy: rnd(15, 50), g: 0, t: -rnd(0, .5), life: rnd(1.1, 1.8), color: 'rgba(255,245,210,.9)', r: rnd(.8, 1.8) });
+    (b.lines || []).forEach(([x1, y1, x2, y2]) => sunBeams.push({ kind: 'line', x: x1, y: y1, x2, y2, t: -.3, life: 1.3, w: w * .8 }));
+    (b.rays || []).forEach(([x2, y2, d]) => sunBeams.push({ kind: 'line', x: b.x, y: b.y, x2, y2, t: -.3, life: 1.4, w: w * .6, col: ['255,94,126', '255,184,77', '255,228,92', '94,224,138', '77,195,255', '154,123,255'][d % 6] }));
+    if (b.from) sunBeams.push({ kind: 'line', x: b.from[0], y: b.from[1], x2: b.x, y2: b.y, t: 0, life: 1.2, w: w * .7, col: '255,190,110' });
+    if (b.mode === 'nuke') { blast(b.x, b.y, 1.8); whiteFlash = 2.2; }
+    if (b.mode === 'flare') for (let i = 0; i < 34; i++) { const a = rnd(0, TAU), v = rnd(80, 220); parts.push({ k: 'flamep', x: b.x + Math.cos(a) * 14, y: b.y + Math.sin(a) * 14, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 60, g: -30, t: -rnd(.3, .6), life: rnd(.5, .9), color: '#FF8A00', r: rnd(10, 18) }); }
+  }
   function explode(b) {
+    if (b.sun) { sunFx(b); return; }
     if (b.ice) { iceFx(b); return; }
     if (b.fire) { igniteFx(b); return; }
     if (b.napalm) {
@@ -671,7 +738,8 @@
         if (!fx.burst && fx.t >= fx.delay) {
           fx.burst = true;
           const col = colorOf(fx.ci), B = HB.fx.bursts[HB.profile.burst];
-          if (fx.frozen || fx.ice || fx.frost != null) { iceShards(cl.x, cl.y, col); if (tinkles++ < 3) HB.sfx.iceCrack((cl.x - 180) / 180); }
+          if (fx.sunburn || fx.sun) sunVapor(cl.x, cl.y, fx.prism);
+          else if (fx.frozen || fx.ice || fx.frost != null) { iceShards(cl.x, cl.y, col); if (tinkles++ < 3) HB.sfx.iceCrack((cl.x - 180) / 180); }
           else if (B) B.cell(fxApi, cl.x, cl.y, col, fx.hole || { cx: cl.x, cy: cl.y });
           else if (!HB.skins.breakFx(fxApi, cl.x, cl.y, col, fx.v)) {
             shards(cl.x, cl.y, col, 3); sparks(cl.x, cl.y, col, 4, 160); drops(cl.x, cl.y, col, 2);
@@ -703,6 +771,8 @@
     }
     for (const s of strikes) s.t += dt;
     strikes = strikes.filter(s => s.t < (s.life || .6));
+    for (const s of sunBeams) s.t += dt;
+    sunBeams = sunBeams.filter(s => s.t < s.life);
     if (combo >= 2 && mode === 'play') {
       hudAcc += dt * (10 + Math.min(combo, 8) * 5) * (1 - miss * .25);
       while (hudAcc > 1) {
@@ -862,6 +932,121 @@
       c.closePath(); c.fill();
     });
   }
+  /** Солнце: корона, лучи, протуберанцы, диск с потемнением к краю и белым ядром, грануляция, марево. */
+  function drawSun(c, x, y, R, t, stage, grow = 9) {
+    const pulse = 1 + .06 * Math.sin(t * 2.4) + .03 * Math.sin(t * 5.1);
+    const gk = grow < 1.5 ? 1 + .35 * Math.exp(-4 * grow) : 1;
+    const disc = R * (.56 + stage * .08) * pulse * gk;
+    c.save(); c.globalCompositeOperation = 'lighter';
+    const cr = disc * (3 + stage * .9);
+    const cg = c.createRadialGradient(x, y, disc * .8, x, y, cr);
+    cg.addColorStop(0, 'rgba(255,245,210,.6)'); cg.addColorStop(.3, 'rgba(255,200,110,.24)'); cg.addColorStop(1, 'rgba(255,140,40,0)');
+    c.fillStyle = cg; c.beginPath(); c.arc(x, y, cr, 0, TAU); c.fill();
+    c.translate(x, y); c.rotate(t * .12);
+    for (let i = 0; i < 12; i++) {
+      c.rotate(TAU / 12);
+      const L = disc * (1.7 + .5 * Math.sin(t * 3 + i * 1.7)) * (1 + stage * .25);
+      const g = c.createLinearGradient(0, 0, L, 0); g.addColorStop(0, 'rgba(255,240,200,.5)'); g.addColorStop(1, 'rgba(255,200,120,0)');
+      c.fillStyle = g; c.beginPath(); c.moveTo(0, -disc * .12); c.lineTo(L, 0); c.lineTo(0, disc * .12); c.closePath(); c.fill();
+    }
+    c.rotate(-t * .12 - TAU);
+    for (let layer = 0; layer < 2; layer++) {
+      c.beginPath();
+      for (let i = 0; i <= 60; i++) {
+        const a = i / 60 * TAU, n = .06 * Math.sin(a * 7 + t * 1.3 + layer) + .04 * Math.sin(a * 13 - t * 2.3) + .03 * Math.sin(a * 23 + t * 3.1);
+        const rr = disc * (1.02 + layer * .04 + Math.max(0, n) * (1.6 - layer * .6));
+        i ? c.lineTo(Math.cos(a) * rr, Math.sin(a) * rr) : c.moveTo(Math.cos(a) * rr, Math.sin(a) * rr);
+      }
+      c.closePath(); c.fillStyle = layer ? 'rgba(255,110,40,.35)' : 'rgba(255,170,70,.5)'; c.fill();
+    }
+    c.restore();
+    const dg = c.createRadialGradient(x - disc * .08, y - disc * .1, 0, x, y, disc);
+    dg.addColorStop(0, '#FFFFFF'); dg.addColorStop(.36, '#FFFCEE'); dg.addColorStop(.66, '#FFE08A'); dg.addColorStop(.88, '#FFA640'); dg.addColorStop(1, '#EE6A1E');
+    c.fillStyle = dg; c.beginPath(); c.arc(x, y, disc, 0, TAU); c.fill();
+    c.save(); c.beginPath(); c.arc(x, y, disc, 0, TAU); c.clip(); c.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < 10; i++) { const a = i * 2.4 + t * .25, d = disc * (.2 + (i % 4) * .18); c.fillStyle = `rgba(255,255,230,${.1 + .06 * Math.sin(t * 3 + i)})`; c.beginPath(); c.arc(x + Math.cos(a) * d, y + Math.sin(a) * d, disc * .16, 0, TAU); c.fill(); }
+    const core = c.createRadialGradient(x, y, 0, x, y, disc * .5); core.addColorStop(0, 'rgba(255,255,255,.9)'); core.addColorStop(1, 'rgba(255,255,255,0)');
+    c.fillStyle = core; c.fillRect(x - disc, y - disc, disc * 2, disc * 2);
+    c.restore();
+    c.save(); c.globalCompositeOperation = 'lighter'; c.lineWidth = 2.5;
+    for (let i = 0; i < 3; i++) {
+      c.strokeStyle = `rgba(255,235,200,${.08 + .04 * Math.sin(t * 2 + i)})`;
+      c.beginPath();
+      for (let k = 0; k <= 12; k++) { const yy = y - disc * 1.2 - k * disc * .22, xx = x + (i - 1) * disc * .5 + Math.sin(t * 5 + k * .9 + i * 2) * disc * .18; k ? c.lineTo(xx, yy) : c.moveTo(xx, yy); }
+      c.stroke();
+    }
+    if (stage >= 1) {
+      c.setLineDash([4, 6]); c.lineDashOffset = -t * 20;
+      c.strokeStyle = `rgba(255,210,120,${.28 + .12 * Math.sin(t * 3)})`; c.lineWidth = 2;
+      c.beginPath(); c.arc(x, y, (stage + .5) * S * R3, 0, TAU); c.stroke(); c.setLineDash([]);
+    }
+    c.restore();
+    for (let i = 0; i < 3; i++) { c.fillStyle = i < stage ? '#FFE08A' : 'rgba(255,255,255,.25)'; c.beginPath(); c.arc(x - 8 + i * 8, y + R * .78, 2.4, 0, TAU); c.fill(); }
+  }
+  function sunLight(c, s) {
+    const r = (Math.max(1, s.sunStage) + 1.2) * S * R3, fl = .85 + .15 * Math.sin(time * 2.4 + s.q);
+    c.save(); c.globalCompositeOperation = 'lighter';
+    const g = c.createRadialGradient(s.x, s.y, 6, s.x, s.y, r);
+    g.addColorStop(0, `rgba(255,236,190,${.4 * fl})`); g.addColorStop(.5, `rgba(255,200,120,${.14 * fl})`); g.addColorStop(1, 'rgba(255,170,80,0)');
+    c.fillStyle = g; c.fillRect(s.x - r, s.y - r, r * 2, r * 2);
+    c.restore();
+  }
+  /** Марево: соты в зоне жара чуть колышутся, как воздух над огнём. */
+  function haze(cl) {
+    let dx = 0, dy = 0;
+    for (const s of sunsOn) {
+      if (s === cl) continue;
+      const d = cdist(s, cl), R0 = Math.max(1, s.sunStage) + .5;
+      if (d > R0) continue;
+      const a = 1.9 * (1 - d / (R0 + .5));
+      dx += Math.sin(time * 9 + cl.y * .35 + cl.x * .12) * a;
+      dy += Math.cos(time * 7.3 + cl.x * .3) * a * .6;
+    }
+    return [dx, dy];
+  }
+  /** Проработанный луч: широкое тёплое свечение, яркая середина, белое ядро и бегущие по лучу прожилки. */
+  function beam(c, x1, y1, x2, y2, w, a, col, t) {
+    const L = Math.hypot(x2 - x1, y2 - y1) || 1, ang = Math.atan2(y2 - y1, x2 - x1);
+    c.save(); c.translate(x1, y1); c.rotate(ang); c.globalCompositeOperation = 'lighter';
+    const layer = (ww, al, cc) => {
+      const g = c.createLinearGradient(0, -ww, 0, ww);
+      g.addColorStop(0, `rgba(${cc},0)`); g.addColorStop(.5, `rgba(${cc},${al})`); g.addColorStop(1, `rgba(${cc},0)`);
+      c.fillStyle = g; c.fillRect(0, -ww, L, ww * 2);
+    };
+    layer(w * 3.4, .2 * a, col); layer(w * 1.5, .5 * a, col); layer(w * .6, .85 * a, '255,248,230'); layer(w * .2, a, '255,255,255');
+    for (let i = 0; i < 7; i++) { const off = ((t * 1.8 + i * .17) % 1) * L; c.fillStyle = `rgba(255,255,255,${.3 * a})`; c.fillRect(off, (i - 3) * w * .12, L * .07, 1.3); }
+    c.restore();
+  }
+  function lensFlare(c, x, y, a, w) {
+    c.save(); c.globalCompositeOperation = 'lighter';
+    const g = c.createRadialGradient(x, y, 0, x, y, w * 4.2);
+    g.addColorStop(0, `rgba(255,255,255,${a})`); g.addColorStop(.25, `rgba(255,235,180,${.6 * a})`); g.addColorStop(1, 'rgba(255,180,80,0)');
+    c.fillStyle = g; c.beginPath(); c.arc(x, y, w * 4.2, 0, TAU); c.fill();
+    c.save(); c.translate(x, y); c.scale(1, .05);
+    const g2 = c.createRadialGradient(0, 0, 0, 0, 0, 280); g2.addColorStop(0, `rgba(255,245,220,${.85 * a})`); g2.addColorStop(1, 'rgba(255,200,120,0)');
+    c.fillStyle = g2; c.beginPath(); c.arc(0, 0, 280, 0, TAU); c.fill();
+    c.restore();
+    const vx = 180 - x, vy = CY - y;
+    [.5, .9, 1.35].forEach((m, i) => { c.fillStyle = `rgba(${['255,200,120', '180,220,255', '255,160,200'][i]},${.14 * a})`; hexPath(c, x + vx * m, y + vy * m, 10 + i * 9); c.fill(); });
+    c.restore();
+  }
+  function drawSunBeams(c) {
+    for (const s of sunBeams) {
+      if (s.t < 0) continue;
+      const k = s.t / s.life, a = Math.min(1, s.t / .1) * (1 - Math.pow(k, 2.2)) * (.9 + .1 * Math.sin(s.t * 60));
+      if (s.kind === 'sky') {
+        c.save(); c.globalCompositeOperation = 'lighter';
+        for (let i = 0; i < 6; i++) {
+          const sp = (i - 2.5) * 34, g = c.createLinearGradient(s.x, -60, s.x, s.y);
+          g.addColorStop(0, `rgba(255,230,170,${.1 * a})`); g.addColorStop(1, 'rgba(255,230,170,0)');
+          c.fillStyle = g; c.beginPath(); c.moveTo(s.x - 4, -60); c.lineTo(s.x + 4, -60); c.lineTo(s.x + sp + 10, s.y); c.lineTo(s.x + sp - 10, s.y); c.closePath(); c.fill();
+        }
+        c.restore();
+        beam(c, s.x, -60, s.x, s.y, s.w * (1 + .3 * (1 - k)), a, '255,215,130', s.t);
+        lensFlare(c, s.x, s.y, a, s.w);
+      } else beam(c, s.x, s.y, s.x2, s.y2, s.w, a, s.col || '255,215,130', s.t);
+    }
+  }
   /** Морозный узор: полупрозрачная корка, ветвистые кристаллы и ледяная кромка. */
   function paintFrost(g, R, seed) {
     g.save(); HB.skins.hexPath(g, 0, 0, R); g.clip();
@@ -946,6 +1131,7 @@
   }
   function drawBoard(c) {
     const sk = skin();
+    sunsOn = cells.filter(q => q.ci >= 0 && q.sun);
     for (const cl of cells) HB.skins.empty(c, cl.x, cl.y, S * .93, sk);
     for (const s of splats) {
       const a = .32 * (1 - s.t / s.life) * clamp(s.t * 8);
@@ -970,7 +1156,8 @@
       const rk = rippleK(cl);
       const sc = (cl.pt < 1 ? 1 + .24 * Math.exp(-7 * cl.pt) * Math.cos(18 * cl.pt) : 1) * rk;
       const flash = cl.gt >= 0 ? clamp(1 - Math.abs(endT - cl.gt) * 8) * .5 : 0;
-      tile(c, cl.x, cl.y, S * .93 * sc, colorOf(cl.ci), { flash, grey, v: cl.v, age: time - cl.born, board: true, rip: rk - 1, seed: cl.idx * 7 + cl.v });
+      const hz = sunsOn.length ? haze(cl) : [0, 0];
+      tile(c, cl.x + hz[0], cl.y + hz[1], S * .93 * sc, colorOf(cl.ci), { flash, grey, v: cl.v, age: time - cl.born, board: true, rip: rk - 1, seed: cl.idx * 7 + cl.v });
       if (cl.bomb) drawBomb(c, cl.x, cl.y, S * sc, time + cl.q);
       if (cl.frozen) drawFrost(c, cl.x, cl.y, S * .93 * sc, clamp((time - cl.frzT) / .8), cl.frzAng, cl.idx);
       if (cl.ice) drawIce(c, cl.x, cl.y, S * sc, time + cl.q);
@@ -979,6 +1166,8 @@
     const lit = cells.filter(cl => cl.ci >= 0 && cl.fire);
     lit.forEach(cl => fireLight(c, cl.x, cl.y, time));
     lit.forEach(cl => { const age = time - cl.born; drawBonfire(c, cl.x, cl.y, S, time + cl.q, 1 + (age < 1 ? 1.4 * Math.exp(-4 * age) : 0)); });
+    sunsOn.forEach(s => sunLight(c, s));
+    sunsOn.forEach(s => drawSun(c, s.x, s.y, S, time + s.q, s.sunStage, time - s.sunGrowT));
     HB.skins.drawOver(c, { cx: 180, cy: CY, R: S * .93 });
     if (boltPreview && drag) {
       const fl = .5 + .5 * Math.sin(time * 30) * Math.sin(time * 11);
@@ -1009,8 +1198,15 @@
         if (fx.bomb) drawBomb(c, cl.x, cl.y, S, time * 3);
         if (fx.fire) { fireLight(c, cl.x, cl.y, time, 1.5); drawBonfire(c, cl.x, cl.y, S, time * 1.6, 1.6); }
         if (fx.frozen) drawFrost(c, cl.x, cl.y, S * .93, 1, fx.frzAng, cl.idx);
-        else if (fx.frost != null && fx.t >= fx.frost) drawFrost(c, cl.x, cl.y, S * .93, clamp((fx.t - fx.frost) / .3), Math.atan2(-1, 0), cl.idx);
+        else if (fx.frost != null && fx.t >= fx.frost) { const fp = clamp((fx.t - fx.frost) / .45); drawFrost(c, cl.x, cl.y, S * .93, fp, Math.atan2(-1, 0), cl.idx); if (fp >= 1) { c.save(); c.globalCompositeOperation = 'lighter'; hexPath(c, cl.x, cl.y, S * .93); c.fillStyle = `rgba(200,240,255,${.18 + .14 * Math.sin(time * 14 + cl.idx)})`; c.fill(); c.restore(); } }
         if (fx.ice) { iceLight(c, cl.x, cl.y, time); drawIce(c, cl.x, cl.y, S, time * 2); }
+        if (fx.sun) drawSun(c, cl.x, cl.y, S, time, fx.sunStage, .15);
+        if (fx.sunburn) {
+          const hk = clamp(1 - (-lt) / .7);
+          c.save(); c.globalCompositeOperation = 'lighter'; hexPath(c, cl.x, cl.y, S * .93);
+          c.fillStyle = fx.prism != null ? `rgba(${['255,94,126', '255,184,77', '255,228,92', '94,224,138', '77,195,255', '154,123,255'][fx.prism % 6]},${.7 * hk})` : `rgba(255,236,190,${.85 * hk})`;
+          c.fill(); c.restore();
+        }
         if (fx.charged) {
           c.save(); c.globalCompositeOperation = 'lighter'; c.lineCap = 'round';
           c.beginPath(); for (let i = 0; i < 3; i++) jag(c, cl.x, cl.y, cl.x + rnd(-20, 20), cl.y + rnd(-20, 20), 3, 4);
@@ -1026,6 +1222,7 @@
       tile(c, cl.x, cl.y, S * .93 * sc, col, o);
     }
     drawStrikes(c);
+    drawSunBeams(c);
     for (const r of rings) {
       if (r.t < 0) continue;
       const life = r.big ? .7 : .55, p = r.t / life, maxR = r.huge ? 320 : r.big ? 230 : 150;
@@ -1045,6 +1242,7 @@
       if (k === p.bolt) { c.globalAlpha = alpha; drawBolt(c, px, py, S * sc, time + k); c.globalAlpha = 1; }
       if (k === p.fire) { c.globalAlpha = alpha; drawBonfire(c, px, py, S * sc, time + k, .85); c.globalAlpha = 1; }
       if (k === p.ice) { c.globalAlpha = alpha; drawIce(c, px, py, S * sc, time + k); c.globalAlpha = 1; }
+      if (k === p.sun) { c.globalAlpha = alpha; drawSun(c, px, py, S * sc, time + k, 0); c.globalAlpha = 1; }
     });
   }
   function drawTray(c) {
@@ -1152,13 +1350,14 @@
         if (k2 === 'bolt') drawBolt(c, ix, by, 11, time);
         else if (k2 === 'fire') drawBonfire(c, ix, by - 3, 10, time, .8);
         else if (k2 === 'ice') drawIce(c, ix, by, 12, time);
+        else if (k2 === 'sun') drawSun(c, ix, by, 11, time, 0);
         else drawBomb(c, ix, by, 11, time);
       });
       for (let i = 0; i < need; i++) {
         c.beginPath(); c.arc(bx + 16 + i * 9, by + 1, 3.2, 0, TAU);
         c.fillStyle = i < have ? CORAL : 'rgba(255,255,255,.15)'; c.fill();
       }
-      if (pending.length) text(c, '×' + pending.length, bx - 16 - (specials().length - 1) * 12, by + 1, `800 12px ${FB}`, pending[0] === 'bolt' ? BOLTC : pending[0] === 'fire' ? FIREC : pending[0] === 'ice' ? ICEC : CORAL, 'right');
+      if (pending.length) text(c, '×' + pending.length, bx - 16 - (specials().length - 1) * 12, by + 1, `800 12px ${FB}`, pending[0] === 'bolt' ? BOLTC : pending[0] === 'fire' ? FIREC : pending[0] === 'ice' ? ICEC : pending[0] === 'sun' ? SUNC : CORAL, 'right');
     }
   }
   function drawBanner(c) {
@@ -1244,6 +1443,7 @@
   function frame(now) {
     let dt = Math.min(.05, Math.max(0, (now - last) / 1000)); last = now;
     if (freeze > 0) { freeze -= dt; dt *= .08; }
+    else if (slowmo > 0) { slowmo -= dt; dt *= .38; }
     update(dt);
     draw();
     requestAnimationFrame(frame);
@@ -1293,6 +1493,7 @@
       const b = map.get(key(1, -1)); b.ci = 2; b.bomb = true;
       if (HB.settings._fireTest) { const f = map.get(key(2, 0)); f.fire = true; }
       if (HB.settings._iceTest) { const f = map.get(key(-2, 0)); f.ice = true; }
+      if (HB.settings._sunTest) { const f = map.get(key(-3, 0)); f.sun = true; f.sunStage = HB.settings._sunTest; }
       map.get(key(0, 1)).ci = 4; map.get(key(-1, 1)).ci = 5;
       tray[0] = HB.settings._icePiece ? makePiece(0, 0, [[0, 0]], 3, -1, null, -1, -1, 0) : makePiece(0, 0, [[0, 0]], 3, -1, null, 0); tray[0].delay = 0;
       updateFits();

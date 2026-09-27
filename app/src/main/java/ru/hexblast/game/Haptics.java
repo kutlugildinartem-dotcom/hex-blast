@@ -79,6 +79,17 @@ final class Haptics {
                 if (cosmos) p.on(350, 160).off(40).on(300, 90);
                 break;
             }
+            case "sungrow": p.on(60, 120).off(30).on(140, 210).off(20).on(60, 120); break;
+            case "sun": {
+                // Нарастание, мощный долгий удар и медленно затухающий гул.
+                for (int i = 0; i < 6; i++) p.on(14, 60 + i * 25).off(30);
+                p.on(380, 255).off(25);
+                int amp = 240;
+                java.util.Random r = new java.util.Random();
+                for (int i = 0; i < 24; i++) { p.on(30 + r.nextInt(40), Math.max(40, amp - r.nextInt(50))).off(10 + r.nextInt(20)); amp -= 8; }
+                if (cosmos) p.on(400, 150).off(40).on(300, 90);
+                break;
+            }
             case "freeze": {
                 // Замерзание: частая мелкая дрожь, которая нарастает и стихает, как хруст кристаллов.
                 for (int i = 0; i < 16; i++) { int amp = (int) (60 + 110 * Math.sin(i / 16.0 * Math.PI)); p.on(8, amp).off(40); }
