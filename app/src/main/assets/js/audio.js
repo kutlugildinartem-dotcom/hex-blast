@@ -7,7 +7,7 @@
 (() => {
   'use strict';
   const HB = window.HB;
-  let lp = null, held = false;
+  let lp = null, held = false, echo = null, musicBus = null, voices = [];
   let ac = null, master = null, verb = null, noise = null, brown = null;
 
   function init() {
@@ -18,8 +18,20 @@
     comp.attack.value = .003; comp.release.value = .25;
     master = ac.createGain();
     master.gain.value = volume();
-    lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 20000; lp.Q.value = .5;
-    master.connect(lp); lp.connect(comp); comp.connect(ac.destination);
+    lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = Math.min(20000, ac.sampleRate * .45); lp.Q.value = .5;
+    // Страховочный лимитер на выходе: при самых громких взрывах звук сжимается, а не хрипит.
+    const lim = ac.createDynamicsCompressor();
+    lim.threshold.value = -3; lim.knee.value = 0; lim.ratio.value = 20; lim.attack.value = .001; lim.release.value = .12;
+    master.connect(lp); lp.connect(comp); comp.connect(lim); lim.connect(ac.destination);
+    // Общее пинг-понг эхо: колокольчики отправляют в него сигнал, а не синтезируют эхо заново.
+    echo = ac.createGain(); echo.gain.value = 1;
+    const dl = ac.createDelay(1), dr = ac.createDelay(1), fb = ac.createGain(), pl = ac.createStereoPanner(), pr = ac.createStereoPanner(), ef = ac.createBiquadFilter();
+    dl.delayTime.value = .19; dr.delayTime.value = .19; fb.gain.value = .42; pl.pan.value = -.7; pr.pan.value = .7;
+    ef.type = 'lowpass'; ef.frequency.value = 5200;
+    echo.connect(ef); ef.connect(dl); dl.connect(pl); pl.connect(master); dl.connect(dr); dr.connect(pr); pr.connect(master); dr.connect(fb); fb.connect(dl);
+    const ev = ac.createGain(); ev.gain.value = .25; dl.connect(ev); echo._ev = ev;
+    // Шина музыки со своей громкостью.
+    musicBus = ac.createGain(); musicBus.gain.value = 0; musicBus.connect(master);
 
     const conv = ac.createConvolver();
     const len = Math.floor(ac.sampleRate * 2.2), ir = ac.createBuffer(2, len, ac.sampleRate);
@@ -31,6 +43,7 @@
     verb = ac.createGain(); verb.gain.value = .9;
     const wet = ac.createGain(); wet.gain.value = .28;
     verb.connect(conv); conv.connect(wet); wet.connect(master);
+    if (echo && echo._ev) echo._ev.connect(verb);
 
     // Коричневый шум: глубокий раскатистый рокот для грома.
     brown = ac.createBuffer(2, ac.sampleRate * 5, ac.sampleRate);
@@ -44,7 +57,26 @@
     return ac;
   }
   const volume = () => HB.settings.sound ? Math.pow(HB.settings.volume, 1.5) * .9 : 0;
-  const ready = () => HB.settings.sound && init() && ac.state !== 'closed';
+  function ready() {
+    if (!HB.settings.sound || !init() || ac.state === 'closed') return false;
+    // Android может сам приостановить звук (другое приложение, звонок, сворачивание). Возвращаем его.
+    if (ac.state !== 'running' && !held) { try { ac.resume(); } catch (e) {} }
+    return true;
+  }
+  /**
+   * Бюджет голосов: телефон захлёбывается, если одновременно звучат сотни осцилляторов,
+   * и звук начинает рваться. Тихие голоса отбрасываются первыми, громкие — только при перегрузе.
+   */
+  const MAXV = 60;
+  function voice(t, dur, vol = .1, cost = 1) {
+    const n0 = ac.currentTime;
+    if (voices.length > 40) voices = voices.filter(e => e > n0);
+    let load = 0; for (const e of voices) if (e > t) load++;
+    if (load + cost > MAXV) return false;
+    if (load > MAXV * .6 && vol < .045) return false;
+    for (let i = 0; i < cost; i++) voices.push(t + dur);
+    return true;
+  }
   const now = (when = 0) => ac.currentTime + .005 + when;
   const mtof = m => 440 * Math.pow(2, (m - 69) / 12);
   const PENTA = [0, 2, 4, 7, 9];
@@ -52,6 +84,7 @@
 
   function out(node, pan = 0, rev = .3) {
     let n = node;
+    if (!isFinite(pan)) pan = 0;
     if (ac.createStereoPanner && pan) { const p = ac.createStereoPanner(); p.pan.value = pan; n.connect(p); n = p; }
     n.connect(master);
     if (rev > 0) { const s = ac.createGain(); s.gain.value = rev; n.connect(s); s.connect(verb); }
@@ -65,7 +98,8 @@
   }
 
   /** Стеклянный колокольчик: синус, промодулированный синусом с затухающим индексом. */
-  function bell(freq, t, { vol = .16, dur = 1.1, pan = 0, rev = .45, ratio = 3.5, index = 2.2 } = {}) {
+  function bell(freq, t, { vol = .16, dur = 1.1, pan = 0, rev = .45, ratio = 3.5, index = 2.2, send = 0 } = {}) {
+    if (!voice(t, dur, vol)) return;
     const car = ac.createOscillator(), mod = ac.createOscillator(), mg = ac.createGain();
     car.frequency.value = freq; mod.frequency.value = freq * ratio;
     mg.gain.setValueAtTime(freq * index, t);
@@ -76,10 +110,12 @@
     const sh = ac.createOscillator(), sg = envGain(t, .002, vol * .25, dur * .35);
     sh.frequency.value = freq * 2.01; sh.connect(sg);
     out(g, pan, rev); out(sg, pan, rev);
+    if (send && echo) { const s = ac.createGain(); s.gain.value = send; g.connect(s); s.connect(echo); }
     [car, mod, sh].forEach(o => { o.start(t); o.stop(t + dur + .05); });
   }
   /** Сочный щипок: треугольник + пила через закрывающийся фильтр. */
   function pluck(freq, t, { vol = .14, dur = .4, pan = 0, rev = .3, bright = 5000 } = {}) {
+    if (!voice(t, dur, vol)) return;
     const o1 = ac.createOscillator(), o2 = ac.createOscillator(), f = ac.createBiquadFilter();
     o1.type = 'triangle'; o2.type = 'sawtooth';
     o1.frequency.value = freq; o2.frequency.value = freq * 1.003;
@@ -167,6 +203,7 @@
   }
   /** Квадратная 25%-волна старых приставок; blip — короткий скачок на октаву в атаке. */
   function chip(freq, t, { vol = .06, dur = .14, pan = 0, blip = true, tri = false } = {}) {
+    if (!voice(t, dur, vol)) return;
     const o = ac.createOscillator();
     if (tri) o.type = 'triangle'; else o.setPeriodicWave(pulse());
     o.frequency.setValueAtTime(blip ? freq * 2 : freq, t);
@@ -178,6 +215,7 @@
   }
   /** Рояль: обертоны с лёгкой негармоничностью струны, фильтр закрывается, стук молоточка. */
   function piano(freq, t, { vol = .1, dur = 1.8, pan = 0 } = {}) {
+    if (!voice(t, dur, vol, 2)) return;
     const f = ac.createBiquadFilter(); f.type = 'lowpass';
     f.frequency.setValueAtTime(Math.min(9000, freq * 10), t);
     f.frequency.exponentialRampToValueAtTime(Math.max(400, freq * 2.2), t + .6);
@@ -191,16 +229,35 @@
     });
     noiseHit(t, { vol: vol * .25, dur: .02, freq: 2500, type: 'bandpass', q: 1, rev: .1, attack: .001, pan });
   }
+  /**
+   * Войлочное пианино: мягкий молоточек, тёплый приглушённый тембр, длинный хвост в реверберации.
+   * Тихое и чуть «пыльное», как в спокойных играх-песочницах.
+   */
+  function felt(freq, t, { vol = .09, dur = 3, pan = 0, dest = null, rev = .75, budget = true } = {}) {
+    if (budget && !voice(t, Math.min(dur, 2.5), vol)) return;
+    const f = ac.createBiquadFilter(); f.type = 'lowpass'; f.Q.value = .3;
+    f.frequency.setValueAtTime(Math.min(5000, freq * 5), t);
+    f.frequency.exponentialRampToValueAtTime(Math.max(300, freq * 1.3), t + dur * .5);
+    const g = ac.createGain();
+    g.gain.setValueAtTime(.0001, t); g.gain.linearRampToValueAtTime(vol, t + .012);
+    g.gain.setTargetAtTime(vol * .45, t + .02, .25); g.gain.setTargetAtTime(.0001, t + .5, dur * .32);
+    f.connect(g);
+    [[1, 'triangle', 0, 1], [1, 'sine', 5, .6], [2, 'sine', -4, .22], [3, 'sine', 3, .06]].forEach(([m, type, det, a]) => {
+      const o = ac.createOscillator(), og = ac.createGain(); o.type = type; o.frequency.value = freq * m; o.detune.value = det; og.gain.value = a;
+      o.connect(og); og.connect(f); o.start(t); o.stop(t + dur + .6);
+    });
+    if (dest) { let n = g; if (pan) { const p = ac.createStereoPanner(); p.pan.value = pan; g.connect(p); n = p; } n.connect(dest); const s = ac.createGain(); s.gain.value = rev; n.connect(s); s.connect(verb); }
+    else out(g, pan, rev);
+  }
   /** Хрустальный колокольчик с негармоничным спектром и пинг-понг эхом. */
   function glassBell(freq, t, { vol = .06, dur = 2.4, pan = 0 } = {}) {
-    [0, .19, .38].forEach((d, i) => {
-      const k = [1, .45, .2][i], p = i === 0 ? pan : (i % 2 ? -.7 : .7);
-      bell(freq, t + d, { vol: vol * k, dur: dur * (1 - i * .2), pan: p, rev: .6, ratio: 2.756, index: .9 });
-      bell(freq * 2, t + d + .002, { vol: vol * k * .3, dur: dur * .5, pan: p, rev: .6, ratio: 5.4, index: .5 });
-    });
+    // Один удар + общее эхо-шина: звучит так же, а нагрузка в шесть раз меньше.
+    bell(freq, t, { vol, dur, pan, rev: .6, ratio: 2.756, index: .9, send: .55 });
+    bell(freq * 2, t + .002, { vol: vol * .3, dur: dur * .5, pan, rev: .6, ratio: 5.4, index: .5, send: .4 });
   }
   /** Калимба: металлический язычок — чистый тон, короткий звон атаки и мягкий обертон. */
   function kalimba(freq, t, { vol = .13, pan = 0, dur = 1.5 } = {}) {
+    if (!voice(t, dur, vol)) return;
     const o = ac.createOscillator();
     o.frequency.setValueAtTime(freq * 1.012, t); o.frequency.exponentialRampToValueAtTime(freq, t + .03);
     const g = envGain(t, .002, vol, dur); o.connect(g); out(g, pan, .45);
@@ -229,6 +286,7 @@
     return b;
   }
   function harp(freq, t, { vol = .24, pan = 0 } = {}) {
+    if (!voice(t, 1.5, vol * .4)) return;
     const s = ac.createBufferSource(); s.buffer = ksBuffer(freq);
     const f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = Math.min(7000, freq * 7);
     const g = ac.createGain(); g.gain.setValueAtTime(vol, t); g.gain.setValueAtTime(vol, t + 2); g.gain.linearRampToValueAtTime(0, t + 2.35);
@@ -237,6 +295,7 @@
   }
   /** Родес: FM-электропиано с «колокольчиком» атаки, тремоло и тёплым фильтром. */
   function rhodes(freq, t, { vol = .09, pan = 0, dur = 1.8 } = {}) {
+    if (!voice(t, dur, vol)) return;
     const car = ac.createOscillator(), mod = ac.createOscillator(), mg = ac.createGain();
     car.frequency.value = freq; mod.frequency.value = freq;
     mg.gain.setValueAtTime(freq * 1.3, t); mg.gain.exponentialRampToValueAtTime(freq * .12, t + .5);
@@ -251,6 +310,7 @@
   }
   /** Глубокий синт: две расстроенные пилы через резонансный фильтр, с эхом отдельными отражениями. */
   function synthPluck(freq, t, { vol = .07, pan = 0, dur = .7, cutoff = 2600, echo = true } = {}) {
+    if (!voice(t, dur, vol)) return;
     const f = ac.createBiquadFilter(); f.type = 'lowpass'; f.Q.value = 5;
     f.frequency.setValueAtTime(250, t); f.frequency.exponentialRampToValueAtTime(cutoff, t + .015);
     f.frequency.exponentialRampToValueAtTime(Math.max(300, freq * 1.5), t + dur * .8);
@@ -271,6 +331,7 @@
   }
   /** Ханг: глубокий стальной купол — долгий основной тон с «биениями», мягкий суб и сияющие обертоны. */
   function handpan(freq, t, { vol = .12, pan = 0, dur = 4.5 } = {}) {
+    if (!voice(t, Math.min(dur, 2.5), vol)) return;
     [[1, 1, dur, 0], [1, .5, dur * .9, 1.3], [2.002, .28, dur * .75, -.9], [2.99, .09, dur * .45, .6], [.5, .18, dur * .8, 0]].forEach(([r, a, d, beat], i) => {
       const o = ac.createOscillator();
       o.frequency.setValueAtTime(freq * r * (i ? 1 : 1.004) + beat, t);
@@ -285,6 +346,7 @@
   }
   /** Маримба: тёплый тон + обертон 4× (свойство бруска) + мягкий стук колотушки. */
   function marimba(freq, t, { vol = .13, pan = 0, dur = 1.1 } = {}) {
+    if (!voice(t, dur, vol)) return;
     const f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = Math.min(6000, freq * 6);
     const bus = ac.createGain(); f.connect(bus); out(bus, pan, .35);
     [[1, 1, dur], [3.93, .28, dur * .18], [9.2, .06, .05]].forEach(([r, a, d]) => {
@@ -446,10 +508,99 @@
       over(t) { synthPad([mtof(45), mtof(52), mtof(60)], t, { vol: .05, attack: .4, dur: 2.5 }); sub(t + .2, 90, 30, .4, 2); }
     }
   };
+  // Нежный набор: только ноты мажорных септаккордов, чтобы любой каскад звучал как тихая мелодия.
+  const FELT = [0, 2, 4, 7, 9, 11];
+  const fnote = (i, base = 60) => base + 12 * Math.floor(i / 6) + FELT[((i % 6) + 6) % 6];
+  PACKS.felt = {
+    note(m, t, pan, k) { felt(mtof(fnote(k, 67)), t, { vol: .06, dur: 2.4, pan }); },
+    chord(root, t, lines) {
+      const r = 48 + (root - 60) % 12;
+      [0, 7, 16, 23].forEach((st, i) => felt(mtof(r + st), t + i * .09, { vol: .05, dur: 3.5, pan: (i - 1.5) * .3 }));
+      if (lines > 1) [28, 31, 35].forEach((st, i) => felt(mtof(r + st), t + .5 + i * .22, { vol: .04, dur: 3 }));
+    },
+    place(n, pan, t) { thud(t, { vol: .18, from: 110, to: 55, dur: .12 }); felt(mtof(fnote(n, 55)), t, { vol: .06, dur: 2, pan }); },
+    combo(n, t) { for (let i = 0; i < Math.min(n + 2, 7); i++) felt(mtof(fnote(i + n, 69)), t + i * .12, { vol: .045, dur: 2.4, pan: (i % 2 ? .4 : -.4) }); },
+    refill(t) { [0, 2, 4].forEach((k, i) => felt(mtof(fnote(k + 6, 60)), t + i * .1, { vol: .03, dur: 1.8 })); },
+    record(t) { [60, 64, 67, 71, 74, 79].forEach((m, i) => felt(mtof(m), t + i * .16, { vol: .06, dur: 3.5, pan: (i - 2.5) * .2 })); felt(mtof(36), t, { vol: .07, dur: 4 }); },
+    over(t) { [79, 74, 71, 67, 64].forEach((m, i) => felt(mtof(m), t + i * .35, { vol: .05, dur: 3 })); felt(mtof(41), t + .4, { vol: .06, dur: 4 }); felt(mtof(44), t + .4, { vol: .04, dur: 4 }); }
+  };
+
+  /* ---------- фоновая музыка: три тихие пьесы для войлочного пианино ---------- */
+  // Каждая пьеса: темп, аккорды (по два такта), рисунок левой руки и фразы правой.
+  // Мелодии оригинальные, в спокойной манере: много тишины, мягкие септаккорды, минорная субдоминанта.
+  const TRACKS = {
+    morning: {
+      name: 'Утро', bpm: 66,
+      chords: [[50, [0, 7, 11, 16]], [47, [0, 7, 10, 15]], [43, [0, 7, 11, 16]], [45, [0, 5, 7, 14]], [50, [0, 7, 11, 16]], [47, [0, 7, 10, 15]], [43, [0, 7, 11, 14]], [43, [0, 7, 10, 15]]],
+      lh: [[0, 0], [1.5, 1], [3, 2], [4.5, 3], [6, 1]],
+      mel: [
+        [[2, 78, 2], [4, 76, 1], [5, 74, 3]], [[1, 71, 2], [3, 74, 2], [5, 73, 2]], [[0, 71, 3], [4, 74, 1], [5, 76, 2.5]], [[2, 76, 1.5], [3.5, 74, 1], [4.5, 73, 3]],
+        [[2, 78, 2], [4, 81, 1.5], [5.5, 78, 2]], [[1, 76, 3], [4, 74, 3]], [[0, 71, 2], [2, 74, 2], [4, 78, 3]], [[1, 79, 1], [2, 78, 1], [3, 74, 4]]
+      ]
+    },
+    rain: {
+      name: 'Тёплый дождь', bpm: 72,
+      chords: [[41, [0, 7, 11, 16]], [43, [0, 7, 11, 14]], [40, [0, 7, 10, 15]], [45, [0, 7, 10, 15]], [41, [0, 7, 11, 16]], [43, [0, 7, 11, 14]], [38, [0, 7, 10, 15]], [43, [0, 5, 7, 14]]],
+      lh: [[0, 0], [1, 1], [2, 2], [3, 3], [4, 2], [5, 1], [6, 2], [7, 3]],
+      mel: [
+        [[3, 72, 1], [4, 76, 2], [6, 77, 2]], [[0, 79, 3], [4, 74, 1], [5, 71, 3]], [[2, 71, 1], [3, 72, 1], [4, 74, 4]], [[1, 72, 2], [3, 69, 4]],
+        [[3, 72, 1], [4, 76, 2], [6, 81, 2]], [[0, 79, 2], [2, 76, 2], [4, 74, 3]], [[1, 72, 1], [2, 74, 1], [3, 77, 3]], [[0, 76, 2], [2, 74, 1], [3, 71, 5]]
+      ]
+    },
+    lullaby: {
+      name: 'Колыбельная', bpm: 58,
+      chords: [[48, [0, 7, 14, 16]], [52, [0, 7, 10, 15]], [41, [0, 7, 11, 16]], [41, [0, 7, 8, 15]], [48, [0, 7, 14, 16]], [45, [0, 7, 10, 15]], [41, [0, 7, 11, 16]], [43, [0, 5, 7, 14]]],
+      lh: [[0, 0], [2, 1], [3, 2], [4, 3], [6, 2]],
+      mel: [
+        [[2, 76, 2], [4, 79, 4]], [[1, 74, 1], [2, 71, 2], [4, 74, 3]], [[0, 72, 2], [2, 76, 1], [3, 77, 4]], [[2, 75, 2], [4, 72, 4]],
+        [[2, 76, 1], [3, 79, 1], [4, 84, 3]], [[0, 83, 2], [2, 79, 2], [4, 76, 3]], [[1, 77, 1], [2, 76, 1], [3, 72, 4]], [[2, 74, 2], [4, 71, 1], [5, 72, 3]]
+      ]
+    }
+  };
+  const music = { id: null, timer: 0, next: 0, bar: 0, cycle: 0, rng: Math.random };
+  const musicVol = () => (HB.settings.music ? .55 : 0);
+  function schedMusic() {
+    if (!music.id || !ac || ac.state !== 'running' || document.hidden) return;
+    const tr = TRACKS[music.id], beat = 60 / tr.bpm, ahead = ac.currentTime + 1.2;
+    while (music.next < ahead) {
+      const t = Math.max(music.next, ac.currentTime + .05), idx = music.bar % tr.chords.length, [root, iv] = tr.chords[idx];
+      const humanize = () => (Math.random() - .5) * .025;
+      // Левая рука: тихий бас и мягкое арпеджио.
+      felt(mtof(root - 12), t, { vol: .05, dur: beat * 8, dest: musicBus, rev: .8, budget: false });
+      tr.lh.forEach(([b, n]) => { if (Math.random() < .12) return; felt(mtof(root + iv[n]), t + b * beat + humanize(), { vol: .032 + (n === 0 ? .01 : 0), dur: beat * 4, pan: (n - 1.5) * .18, dest: musicBus, rev: .85, budget: false }); });
+      // Правая рука звучит не каждый круг: пьеса дышит и не надоедает.
+      const melOn = music.cycle % 3 !== 2;
+      if (melOn) tr.mel[idx].forEach(([b, m, d]) => { if (Math.random() < .08) return; felt(mtof(m + (music.cycle % 4 === 3 ? -12 : 0)), t + b * beat + humanize(), { vol: .042, dur: beat * d * 1.6 + 1, pan: .15, dest: musicBus, rev: .9, budget: false }); });
+      // Иногда высокая «капля» где-то далеко.
+      if (Math.random() < .3) felt(mtof(root + 24 + iv[3]), t + (4 + Math.floor(Math.random() * 3)) * beat, { vol: .018, dur: 3, pan: Math.random() - .5, dest: musicBus, rev: 1, budget: false });
+      music.next += beat * 8; music.bar++;
+      if (music.bar % tr.chords.length === 0) music.cycle++;
+    }
+  }
+  const musicApi = {
+    TRACKS,
+    play(id) {
+      id = id || HB.settings.track || 'morning';
+      if (!HB.settings.sound || !HB.settings.music) { musicApi.stop(); return; }
+      if (!init()) return;
+      if (music.id === id && music.timer) { musicApi.volume(); return; }
+      musicApi.stop(true);
+      music.id = id; music.bar = 0; music.cycle = 0; music.next = ac.currentTime + .3;
+      musicBus.gain.cancelScheduledValues(ac.currentTime); musicBus.gain.setTargetAtTime(musicVol(), ac.currentTime, 1.2);
+      music.timer = setInterval(schedMusic, 250); schedMusic();
+    },
+    stop(quick) {
+      clearInterval(music.timer); music.timer = 0; music.id = null;
+      if (musicBus && ac) { musicBus.gain.cancelScheduledValues(ac.currentTime); musicBus.gain.setTargetAtTime(0, ac.currentTime, quick ? .05 : .6); }
+    },
+    volume() { if (musicBus && ac) musicBus.gain.setTargetAtTime(musicVol(), ac.currentTime, .3); }
+  };
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && music.id) schedMusic(); });
+
   const pack = id => PACKS[id || (HB.profile && HB.profile.sound)] || PACKS.xylo;
 
   const sfx = {
-    unlock() { if (HB.settings.sound && !held) { init(); if (ac && ac.state === 'suspended') ac.resume(); } },
+    unlock() { if (HB.settings.sound && !held) { init(); if (ac && ac.state !== 'running') ac.resume(); if (HB.settings.music && !music.timer) musicApi.play(); } },
     /** Пауза просмотра: весь звук замирает вместе с картинкой. */
     hold(on) { held = on; if (!ac) return; if (on) ac.suspend(); else if (HB.settings.sound) ac.resume(); },
     /** Замедление: звук уходит «под воду», а вход в замедление слышен как тянущаяся плёнка. */
@@ -550,6 +701,31 @@
       if (!ready()) return; const t = now();
       noiseHit(t, { vol: .06, dur: .5, freq: 500, to: 2500, type: 'bandpass', q: 1.5, rev: .5, attack: .15 });
       [0, 2, 4].forEach((k, i) => bell(mtof(penta(k + 7, 72)), t + .12 + i * .07, { vol: .035, dur: 1.2, ratio: 2, index: .8, pan: (i - 1) * .4 }));
+    },
+    /** Ромашка распустилась: тихое восходящее арпеджио. */
+    daisyPlace() { if (!ready()) return; const t = now(); [72, 76, 79, 84].forEach((m, i) => felt(mtof(m), t + i * .07, { vol: .045, dur: 1.8, pan: (i - 1.5) * .3 })); bell(mtof(96), t + .3, { vol: .02, dur: 1.2 }); },
+    /** Оторванный лепесток: чем дальше, тем выше и светлее. */
+    petal(n = 1) {
+      if (!ready()) return; const t = now(), base = [0, 72, 74, 76, 79, 84][n] || 72;
+      noiseHit(t, { vol: .04, dur: .25, freq: 3000, to: 6000, type: 'bandpass', q: 2, rev: .5, attack: .03 });
+      [0, 4, 7, 12].slice(0, 1 + Math.min(3, n)).forEach((st, i) => felt(mtof(base + st), t + i * .08, { vol: .05, dur: 2.2, pan: (i - 1.5) * .35 }));
+      glassBell(mtof(base + 24), t + .1, { vol: .018 + n * .004, dur: 1.4 });
+    },
+    daisyWilt() { if (!ready()) return; const t = now(); [76, 72, 67, 64].forEach((m, i) => felt(mtof(m), t + i * .22, { vol: .035, dur: 1.6 })); },
+    whirl() { if (!ready()) return; const t = now(); noiseHit(t, { vol: .12, dur: 1.1, freq: 400, to: 3500, type: 'bandpass', q: 1.2, rev: .6, attack: .3 }); [79, 83, 86, 91].forEach((m, i) => felt(mtof(m), t + .2 + i * .08, { vol: .04, dur: 1.8 })); },
+    /** Вознесение: хор, светлый аккорд, звенящий каскад и глубокий подъём. */
+    ascend() {
+      if (!ready()) return; const t = now();
+      [48, 55, 60, 64, 67, 71, 74].forEach((m, i) => {
+        const o = ac.createOscillator(), f1 = ac.createBiquadFilter(); o.type = 'sawtooth'; o.frequency.value = mtof(m); o.detune.value = (i % 2 ? 6 : -6);
+        f1.type = 'bandpass'; f1.frequency.value = 800 + i * 60; f1.Q.value = 1.4;
+        const g = ac.createGain(); g.gain.setValueAtTime(.0001, t); g.gain.linearRampToValueAtTime(.035, t + 1.2); g.gain.setTargetAtTime(.0001, t + 2.6, .7);
+        o.connect(f1); f1.connect(g); out(g, (i - 3) * .2, 1); o.start(t); o.stop(t + 5.5);
+      });
+      const o = ac.createOscillator(); o.frequency.setValueAtTime(40, t); o.frequency.exponentialRampToValueAtTime(80, t + 1.6);
+      const g = envGain(t + .1, 1.2, .3, 2.2); o.connect(g); out(g, 0, .3); o.start(t); o.stop(t + 4);
+      [84, 88, 91, 96, 100, 103, 108].forEach((m, i) => glassBell(mtof(m), t + 1.5 + i * .07, { vol: .03, dur: 2.4, pan: (i - 3) * .25 }));
+      [36, 43, 52, 60, 64, 67].forEach((m, i) => felt(mtof(m), t + 1.55 + i * .05, { vol: .06, dur: 4.5, budget: false }));
     },
     /** Пузыри: светлое стеклянное мерцание и воздушный выдох, без «бульков». */
     bubbles() {
@@ -900,4 +1076,5 @@
     }
   };
   HB.sfx = sfx;
+  HB.music = musicApi;
 })();

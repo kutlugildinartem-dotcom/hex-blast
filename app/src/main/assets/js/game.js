@@ -25,7 +25,7 @@
   const cells = [], map = new Map();
   for (let q = -4; q <= 4; q++) for (let r = -4; r <= 4; r++) {
     if (Math.abs(q + r) > 4) continue;
-    const cl = { idx: cells.length, q, r, x: 0, y: 0, ci: -1, v: 0, born: 0, bomb: false, fire: false, ice: false, frozen: false, frzT: 0, frzAng: 0, sun: false, sunStage: 0, sunGrowT: -9, pt: 9, fx: null, gt: -1 };
+    const cl = { idx: cells.length, q, r, x: 0, y: 0, ci: -1, v: 0, daisy: false, dPet: 0, dT: 0, dAsc: false, born: 0, bomb: false, fire: false, ice: false, frozen: false, frzT: 0, frzAng: 0, sun: false, sunStage: 0, sunGrowT: -9, pt: 9, fx: null, gt: -1 };
     cells.push(cl); map.set(key(q, r), cl);
   }
   const lines = [];
@@ -53,12 +53,12 @@
   const stars = Array.from({ length: 70 }, () => ({ x: rnd(0, W), y: rnd(0, 900), s: rnd(.8, 2), p: rnd(0, TAU) }));
 
   const pieceAt = i => i === 3 ? hold : tray[i];
-  function makePiece(i, delay, shape, ci, bomb = -1, vs = null, bolt = -1, fire = -1, ice = -1, sun = -1) {
+  function makePiece(i, delay, shape, ci, bomb = -1, vs = null, bolt = -1, fire = -1, ice = -1, sun = -1, daisy = -1) {
     const offs = shape.map(([dq, dr]) => [S * R3 * (dq + dr / 2), S * 1.5 * dr]);
     const mx = offs.reduce((a, o) => a + o[0], 0) / offs.length, my = offs.reduce((a, o) => a + o[1], 0) / offs.length;
     const xs = offs.map(o => o[0]), ys = offs.map(o => o[1]);
     return {
-      shape, ci, bomb, bolt, fire, ice, sun, vs: vs || shape.map(() => rand(10)), seed: rand(997),
+      shape, ci, bomb, bolt, fire, ice, sun, daisy, vs: vs || shape.map(() => rand(10)), seed: rand(997),
       offs: offs.map(o => [o[0] - mx, o[1] - my]),
       w: Math.max(...xs) - Math.min(...xs) + S * R3, h: Math.max(...ys) - Math.min(...ys) + S * 2,
       x: sx(i), y: TY + 40, sc: 0, scV: 0, rot: 0, delay, fits: true, fa: 1
@@ -89,7 +89,7 @@
   function earnSpecial() {
     const t = nextSpecial();
     pending.push(t);
-    showBanner(t === 'bolt' ? 'МОЛНИЯ ЗАРЯЖЕНА' : t === 'fire' ? 'КОСТЁР ГОТОВ' : t === 'ice' ? 'ЛЁД ГОТОВ' : t === 'sun' ? 'СОЛНЦЕ ГОТОВО' : 'БОМБА ЗАРЯЖЕНА', t === 'bolt' ? BOLTC : t === 'fire' ? FIREC : t === 'ice' ? ICEC : t === 'sun' ? SUNC : CORAL);
+    showBanner(t === 'daisy' ? 'РОМАШКА РАСЦВЕЛА' : t === 'bolt' ? 'МОЛНИЯ ЗАРЯЖЕНА' : t === 'fire' ? 'КОСТЁР ГОТОВ' : t === 'ice' ? 'ЛЁД ГОТОВ' : t === 'sun' ? 'СОЛНЦЕ ГОТОВО' : 'БОМБА ЗАРЯЖЕНА', t === 'bolt' ? BOLTC : t === 'fire' ? FIREC : t === 'ice' ? ICEC : t === 'sun' ? SUNC : CORAL);
   }
   /** Путь огня от костра: случайно прямо, змейкой или зигзагом по занятым сотам. */
   function firePath(start, n) {
@@ -136,7 +136,7 @@
       const give = (p, type) => { p[type] = rand(p.shape.length); };
       if (HB.settings.bombSource === 'random') ps.forEach(p => { if (Math.random() < .08) give(p, nextSpecial()); });
       while (pending.length) {
-        const free = ps.filter(p => p.bomb < 0 && p.bolt < 0 && p.fire < 0 && p.ice < 0 && p.sun < 0);
+        const free = ps.filter(p => p.bomb < 0 && p.bolt < 0 && p.fire < 0 && p.ice < 0 && p.sun < 0 && p.daisy < 0);
         if (!free.length) break;
         give(free[rand(free.length)], pending.shift());
       }
@@ -146,17 +146,17 @@
   }
 
   /* ---------- сохранение ---------- */
-  const serPiece = p => p ? { shape: p.shape, ci: p.ci, bomb: p.bomb, bolt: p.bolt, fire: p.fire, ice: p.ice, sun: p.sun, vs: p.vs } : null;
+  const serPiece = p => p ? { shape: p.shape, ci: p.ci, bomb: p.bomb, bolt: p.bolt, fire: p.fire, ice: p.ice, sun: p.sun, daisy: p.daisy, vs: p.vs } : null;
   function snapshot() {
     return {
-      cells: cells.map(c => [c.ci, c.bomb ? 1 : 0, c.v, c.fire ? 1 : 0, c.ice ? 1 : 0, c.frozen ? 1 : 0, c.sun ? 1 : 0, c.sunStage]), tray: tray.map(serPiece), hold: serPiece(hold),
+      cells: cells.map(c => [c.ci, c.bomb ? 1 : 0, c.v, c.fire ? 1 : 0, c.ice ? 1 : 0, c.frozen ? 1 : 0, c.sun ? 1 : 0, c.sunStage, c.daisy ? c.dPet : 0, c.daisy ? Math.round(c.dT * 10) / 10 : 0]), tray: tray.map(serPiece), hold: serPiece(hold),
       score, combo, miss, stat: Object.assign({}, stat), pending: pending.slice(), charge, recordShown
     };
   }
   function restore(s) {
-    cells.forEach((c, i) => { c.ci = s.cells[i][0]; c.bomb = !!s.cells[i][1]; c.fire = !!s.cells[i][3]; c.ice = !!s.cells[i][4]; c.frozen = !!s.cells[i][5]; c.frzT = -9; c.sun = !!s.cells[i][6]; c.sunStage = s.cells[i][7] || 0; c.sunGrowT = -9; c.v = s.cells[i][2] || (i * 7) % 10; c.born = time; c.pt = 9; c.fx = null; c.gt = -1; });
-    tray = s.tray.map((p, i) => p ? makePiece(i, i * .06, p.shape, p.ci, p.bomb, p.vs, p.bolt == null ? -1 : p.bolt, p.fire == null ? -1 : p.fire, p.ice == null ? -1 : p.ice, p.sun == null ? -1 : p.sun) : null);
-    hold = s.hold ? makePiece(3, .1, s.hold.shape, s.hold.ci, s.hold.bomb, s.hold.vs, s.hold.bolt == null ? -1 : s.hold.bolt, s.hold.fire == null ? -1 : s.hold.fire, s.hold.ice == null ? -1 : s.hold.ice, s.hold.sun == null ? -1 : s.hold.sun) : null;
+    cells.forEach((c, i) => { c.ci = s.cells[i][0]; c.bomb = !!s.cells[i][1]; c.fire = !!s.cells[i][3]; c.ice = !!s.cells[i][4]; c.frozen = !!s.cells[i][5]; c.frzT = -9; c.sun = !!s.cells[i][6]; c.sunStage = s.cells[i][7] || 0; c.sunGrowT = -9; c.dPet = s.cells[i][8] || 0; c.daisy = c.dPet > 0; c.dT = s.cells[i][9] || 30; c.dAsc = false; c.v = s.cells[i][2] || (i * 7) % 10; c.born = time; c.pt = 9; c.fx = null; c.gt = -1; });
+    tray = s.tray.map((p, i) => p ? makePiece(i, i * .06, p.shape, p.ci, p.bomb, p.vs, p.bolt == null ? -1 : p.bolt, p.fire == null ? -1 : p.fire, p.ice == null ? -1 : p.ice, p.sun == null ? -1 : p.sun, p.daisy == null ? -1 : p.daisy) : null);
+    hold = s.hold ? makePiece(3, .1, s.hold.shape, s.hold.ci, s.hold.bomb, s.hold.vs, s.hold.bolt == null ? -1 : s.hold.bolt, s.hold.fire == null ? -1 : s.hold.fire, s.hold.ice == null ? -1 : s.hold.ice, s.hold.sun == null ? -1 : s.hold.sun, s.hold.daisy == null ? -1 : s.hold.daisy) : null;
     score = s.score; combo = s.combo; miss = s.miss; stat = Object.assign({ lines: 0, maxCombo: 0, clears: 0 }, s.stat);
     pending = Array.isArray(s.pending) ? s.pending.slice() : Array(s.pendingBomb || 0).fill('bomb'); charge = s.charge || 0; recordShown = !!s.recordShown;
     drag = ghost = preview = null;
@@ -241,12 +241,11 @@
   /* ---------- ввод ---------- */
   const BTN = { pause: () => [30, 46 + TOP], undo: () => [76, 46 + TOP] };
   const hitBtn = (p, [x, y]) => Math.hypot(p.x - x, p.y - y) < 23;
-  const canUndo = () => HB.settings.undo && undoCharges > 0 && !!snap;
+  const canUndo = () => HB.settings.undo && undoCharges > 0;
   function down(p) {
     if (!inputOn) return;
     HB.sfx.unlock();
     if (hitBtn(p, BTN.pause())) { HB.sfx.click(); HB.haptic('tick'); HB.ui.pause(); return; }
-    if (canUndo() && hitBtn(p, BTN.undo()) && mode === 'play') { undo(); return; }
     if (mode !== 'play') return;
     const order = holdOn() ? [3, 0, 1, 2] : [0, 1, 2];
     for (const i of order) {
@@ -300,7 +299,7 @@
 
   /* ---------- ход ---------- */
   function afterMove() {
-    if (mode === 'demo') return;
+    if (mode === 'demo' || gifting) return;
     if (tray.every(t => !t)) { refill(); HB.sfx.refill(); }
     updateFits();
     if (stuck()) startEnding();
@@ -322,7 +321,7 @@
     const pc = pieceAt(drag.i), placed = [];
     pc.shape.forEach(([dq, dr], k) => {
       const cl = map.get(key(ghost.aq + dq, ghost.ar + dr));
-      cl.ci = pc.ci; cl.bomb = k === pc.bomb; cl.fire = k === pc.fire; cl.ice = k === pc.ice; cl.sun = k === pc.sun; if (cl.sun) { cl.sunStage = 0; cl.sunGrowT = time; } cl.v = pc.vs[k] | 0; cl.born = time; cl.pt = 0; placed.push(cl);
+      cl.ci = pc.ci; cl.bomb = k === pc.bomb; cl.fire = k === pc.fire; cl.ice = k === pc.ice; cl.sun = k === pc.sun; if (cl.sun) { cl.sunStage = 0; cl.sunGrowT = time; } cl.daisy = k === pc.daisy; if (cl.daisy) { cl.dPet = 5; cl.dT = 30; cl.dAsc = false; } cl.v = pc.vs[k] | 0; cl.born = time; cl.pt = 0; placed.push(cl);
     });
     if (drag.i === 3) hold = null; else tray[drag.i] = null;
     score += pc.shape.length;
@@ -342,9 +341,10 @@
     if (pc.fire >= 0) { setTimeout(() => { HB.sfx.ignite(); HB.haptic('ignite'); }, 60); const fc = placed[pc.fire]; for (let i = 0; i < 12; i++) parts.push({ k: 'ember', soft: true, x: fc.x, y: fc.y, vx: rnd(-50, 50), vy: rnd(-150, -60), g: -20, t: 0, life: rnd(.6, 1.1), color: '#FFB347', r: rnd(1.2, 2.2) }); }
 
     if (pc.sun >= 0) { HB.sfx.sunPlace(); HB.haptic('sungrow'); }
+    if (pc.daisy >= 0) { const dc = placed[pc.daisy]; HB.sfx.daisyPlace(); HB.haptic('streak'); for (let i = 0; i < 10; i++) parts.push({ k: 'petal', x: dc.x, y: dc.y, vx: 0, vy: rnd(-70, -20), g: 40, t: 0, life: rnd(.8, 1.3), color: '#FFFFFF', r: rnd(2.5, 4), rot: rnd(0, TAU), vr: rnd(-3, 3), soft: true }); }
     const autoSuns = [];
     let grew = 0;
-    cells.forEach(c => {
+    if (!gifting) cells.forEach(c => {
       if (!c.sun || c.ci < 0 || placed.includes(c)) return;
       if (c.sunStage >= 3) autoSuns.push(c);
       else { c.sunStage++; c.sunGrowT = time; grew = Math.max(grew, c.sunStage); }
@@ -510,13 +510,14 @@
           }
         }
       }
+      [...u].filter(c => c.daisy).forEach(c => { u.delete(c); tearPetals(c, Math.max(1, full.filter(l => l.includes(c)).length)); });
       const delays = [], xs = [];
       let frozenHit = 0;
       u.forEach(c => {
         if (c.frozen) frozenHit++;
         c.fx = { ci: c.ci, v: c.v, bomb: c.bomb, fire: c.fire, ice: c.ice, sun: c.sun, sunStage: c.sunStage, sunburn: sunburnt.has(c), prism: prismCol.has(c) ? prismCol.get(c) : null, frozen: c.frozen, frost: frostAt.has(c) ? frostAt.get(c) : null, frzAng: c.frzAng, burning: burnt.has(c), charged: c.bomb && zapped.has(c), age: time - c.born, delay: delay.get(c), t: 0, burst: false, hole: { cx: ox, cy: oy } };
         delays.push(c.fx.delay); xs.push((c.x - 180) / 180);
-        c.ci = -1; c.bomb = false; c.fire = false; c.ice = false; c.frozen = false; c.sun = false;
+        c.ci = -1; c.bomb = false; c.fire = false; c.ice = false; c.frozen = false; c.sun = false; c.daisy = false;
       });
       const BC = HB.fx.bursts[HB.profile.burst];
       if (BC) BC.clear(fxApi, ox, oy, { lines: full.length || 1 });
@@ -575,7 +576,7 @@
       if (bestAtStart > 0 && !recordShown) {
         recordShown = true;
         let s = 'НОВЫЙ РЕКОРД!';
-        if (HB.settings.undo) { undoCharges = 1; s += ' +1 ОТМЕНА'; }
+        if (HB.settings.undo) { undoCharges = 1; s += ' · ВТОРОЙ ШАНС'; }
         showBanner(s, AMBER); confetti(60);
         setTimeout(() => { HB.sfx.record(); HB.haptic('record'); }, 280);
       }
@@ -598,6 +599,195 @@
     line.forEach(c => { for (let i = 0; i < 2; i++) parts.push({ k: 'bolt', x: c.x, y: c.y, vx: rnd(-160, 160), vy: rnd(-160, 160), g: 0, t: 0, life: rnd(.25, .45), color: BOLTC, r: rnd(8, 14) }); });
     sparks(cell.x, cell.y, '#FFFFFF', 16, 280);
   }
+  /* ---------- ромашка ---------- */
+  let gifts = [], ascend = null, gifting = false;
+  const DAISY_T = 30;
+  const PETAL_NAMES = ['', 'ЛЕПЕСТОК · ПОДАРОК-СОТА', 'ЛЕПЕСТОК · УСИЛЕНИЕ', 'ЛЕПЕСТОК · ИДЕАЛЬНЫЕ ФИГУРЫ', 'ЛЕПЕСТКОВЫЙ ВИХРЬ', 'ВОЗНЕСЕНИЕ'];
+  function tearPetals(c, n) {
+    for (let k = 0; k < n && c.dPet > 0; k++) {
+      c.dPet--;
+      const num = 5 - c.dPet;
+      c.dT = Math.min(DAISY_T, c.dT + 6);
+      if (num === 5) c.dAsc = true;
+      for (let i = 0; i < 6; i++) parts.push({ k: 'petal', x: c.x, y: c.y, vx: rnd(-60, 60), vy: rnd(-120, -40), g: 60, t: -k * .15, life: rnd(.7, 1.1), color: '#FFFFFF', r: rnd(2, 3.5), rot: rnd(0, TAU), vr: rnd(-6, 6), soft: true });
+      setTimeout(() => { HB.sfx.petal(num); HB.haptic(num >= 4 ? 'record' : 'streak'); }, 120 + k * 260);
+      gifts.push({ n: num, cell: c, t: .75 + k * .95 });
+    }
+  }
+  const pieceHasSpecial = p => p.bomb >= 0 || p.bolt >= 0 || p.fire >= 0 || p.ice >= 0 || p.sun >= 0 || p.daisy >= 0;
+  function flyTo(from, x, y, col, n = 8) {
+    for (let i = 0; i < n; i++) { const d = .35 + i * .03; parts.push({ k: 'star4', soft: true, x: from.x, y: from.y - 24, vx: (x - from.x) / d, vy: (y - from.y + 24) / d, g: 0, t: -i * .025, life: d, color: i % 2 ? '#FFFFFF' : col, r: rnd(2.5, 4) }); }
+  }
+  /** Сота-подарок: встаёт туда, где закончит ряд (лучше всего через ромашку). */
+  function giftTarget(dc) {
+    let best = null;
+    for (const e of cells) {
+      if (e.ci >= 0) continue;
+      let sc = 0;
+      for (const l of lines) {
+        if (!l.includes(e)) continue;
+        const miss = l.filter(x => x.ci < 0).length, through = l.includes(dc);
+        if (miss === 1) sc = Math.max(sc, through ? 100 : 60);
+        else sc = Math.max(sc, (1 - miss / l.length) * 30 + (through ? 8 : 0));
+      }
+      sc += Math.random();
+      if (!best || sc > best.sc) best = { sc, e };
+    }
+    return best && best.e;
+  }
+  function giftPlace(cell) {
+    if (!cell || cell.ci >= 0) return;
+    const keep = { hold, drag, ghost, preview, boltPreview };
+    hold = makePiece(3, 0, [[0, 0]], rand(6));
+    drag = { i: 3, px: cell.x, py: cell.y, lift: 0, dx: 0, vs: 0 }; ghost = { aq: cell.q, ar: cell.r };
+    gifting = true;
+    try { place(); } finally { gifting = false; }
+    hold = keep.hold; drag = keep.drag; ghost = keep.ghost; preview = keep.preview; boltPreview = keep.boltPreview;
+    afterMove();
+  }
+  /** Мягко смести список сот: без цепочек, с очками за каждую. */
+  function sweep(list, ox, oy, per, speed = 520) {
+    list.forEach(c => {
+      if (c.ci < 0) return;
+      c.fx = { ci: c.ci, v: c.v, age: time - c.born, delay: Math.hypot(c.x - ox, c.y - oy) / speed, t: 0, burst: false, hole: { cx: ox, cy: oy } };
+      c.ci = -1; c.bomb = c.fire = c.ice = c.frozen = c.sun = c.daisy = false;
+    });
+    const pts = list.length * per;
+    score += pts; bump = 1;
+    if (pts) floatText('+' + U.fmt(pts), ox, oy - 30, 30);
+    updateFits();
+  }
+  function doGift(g) {
+    const dc = g.cell;
+    if (g.n === 1) {
+      const e = giftTarget(dc); if (!e) return;
+      flyTo(dc, e.x, e.y, '#FFF3B0', 6);
+      gifts.push({ drop: e, t: .38 });
+      showBanner(PETAL_NAMES[1], '#FFF3B0');
+    } else if (g.n === 2) {
+      const types = specials().filter(k => k !== 'daisy'), type = types.length ? types[rand(types.length)] : 'bomb';
+      const cand = [...tray, hold].filter(p => p && !pieceHasSpecial(p));
+      if (cand.length) { const p = cand[rand(cand.length)]; p[type] = rand(p.shape.length); flyTo(dc, p.x, p.y, '#FFE45C', 10); p.sc *= 1.25; }
+      else pending.push(type);
+      showBanner(PETAL_NAMES[2], '#FFE45C');
+    } else if (g.n === 3) {
+      tray = rescuePieces().map((sh, i) => makePiece(i, .2 + i * .12, sh, rand(6)));
+      updateFits(); HB.sfx.refill();
+      flyTo(dc, 180, TY, '#BFF1FF', 14);
+      showBanner(PETAL_NAMES[3], '#BFF1FF');
+    } else if (g.n === 4) {
+      const zone = cells.filter(c => c !== dc && c.ci >= 0 && cdist(c, dc) <= 2 && !c.bomb && !c.fire && !c.ice && !c.sun && !c.daisy);
+      for (let i = 0; i < 26; i++) { const a = i / 26 * TAU; parts.push({ k: 'petal', x: dc.x + Math.cos(a) * 20, y: dc.y + Math.sin(a) * 20, vx: -Math.sin(a) * 160 + Math.cos(a) * 60, vy: Math.cos(a) * 160 + Math.sin(a) * 60, g: 0, t: 0, life: rnd(.9, 1.4), color: i % 3 ? '#FFFFFF' : '#FFF3B0', r: rnd(2.5, 4), rot: rnd(0, TAU), vr: rnd(-8, 8), soft: true }); }
+      rings.push({ x: dc.x, y: dc.y, t: 0, color: '#FFFFFF', big: true });
+      sweep(zone, dc.x, dc.y, 20, 300);
+      HB.sfx.whirl(); shake = Math.max(shake, 10);
+      showBanner(PETAL_NAMES[4], '#FFFFFF');
+    } else if (g.n === 5) {
+      ascend = { x: dc.x, y: dc.y, t: 0, cell: dc, swept: false };
+      dc.daisy = false; dc.dAsc = false; dc.ci = -1;
+      slowmo = Math.max(slowmo, 1.2);
+      HB.sfx.ascend(); HB.haptic('record');
+      showBanner('ВОЗНЕСЕНИЕ', '#FFFFFF');
+    }
+    if (mode !== 'demo') save();
+  }
+  function updateDaisies(dt) {
+    const live = mode === 'play' || mode === 'demo';
+    if (live && (inputOn || mode === 'demo')) cells.forEach(c => {
+      if (!c.daisy || c.dAsc) return;
+      c.dT -= dt;
+      if (c.dT <= 0) {
+        // Завяла: лепестки буреют и опадают, сота остаётся обычной.
+        c.daisy = false;
+        for (let i = 0; i < c.dPet; i++) parts.push({ k: 'petal', x: c.x + rnd(-6, 6), y: c.y, vx: rnd(-20, 20), vy: rnd(0, 20), g: 60, t: -i * .12, life: rnd(1.2, 1.8), color: '#C9B48E', r: rnd(2.5, 3.5), rot: rnd(0, TAU), vr: rnd(-2, 2), soft: true });
+        parts.push({ k: 'puff', x: c.x, y: c.y, vx: 0, vy: -10, g: 0, t: 0, life: .8, color: 'rgba(150,140,120,.5)', r: 10 });
+        HB.sfx.daisyWilt();
+      }
+    });
+    if (live) for (let i = gifts.length - 1; i >= 0; i--) {
+      const g = gifts[i]; g.t -= dt;
+      if (g.t > 0) continue;
+      gifts.splice(i, 1);
+      if (g.drop) giftPlace(g.drop); else if (g.cell && (g.cell.daisy || g.n === 5)) doGift(g);
+    }
+    if (ascend) {
+      const a = ascend; a.t += dt;
+      if (a.t > .9 && !a.beam) { a.beam = true; sunBeams.push({ kind: 'sky', x: a.x, y: a.y - 60, t: 0, life: 1.9, w: 14 }); }
+      if (a.t > 1.55 && !a.swept) {
+        a.swept = true;
+        whiteFlash = 1.6; flashTint = '255,255,250';
+        const all = cells.filter(c => c.ci >= 0);
+        sweep(all, a.x, a.y, 25, 420);
+        score += 500; stat.clears++;
+        floatText('+500', 180, CY - 60, 40, '#FFF3B0');
+        confetti(70);
+        for (let i = 0; i < 40; i++) { const an = rnd(0, TAU), v = rnd(80, 320); parts.push({ k: 'petal', x: a.x, y: a.y - 70, vx: Math.cos(an) * v, vy: Math.sin(an) * v, g: 50, t: 0, life: rnd(1.4, 2.4), color: i % 4 ? '#FFFFFF' : '#FFF3B0', r: rnd(2.5, 4.5), rot: rnd(0, TAU), vr: rnd(-6, 6), soft: true }); }
+        showBanner('ПОЛЕ ОЧИЩЕНО', '#FFF3B0');
+        if (mode !== 'demo') { if (score > best) { best = score; HB.setBest(best); } save(); }
+      }
+      if (a.t > 3) ascend = null;
+    }
+  }
+  /** Ромашка на соте: пять лепестков по кругу, жёлтая серединка, кольцо таймера. */
+  function drawDaisy(c, x, y, R, t, pet = 5, left = DAISY_T, board = false) {
+    const wilt = board ? clamp(1 - left / 6) : 0;
+    c.save(); c.translate(x, y); c.rotate(Math.sin(t * 1.5) * .07);
+    c.save(); c.globalCompositeOperation = 'lighter';
+    const gl = c.createRadialGradient(0, 0, 0, 0, 0, R * 1.1); gl.addColorStop(0, `rgba(255,255,240,${.35 * (1 - wilt)})`); gl.addColorStop(1, 'rgba(255,255,240,0)');
+    c.fillStyle = gl; c.beginPath(); c.arc(0, 0, R * 1.1, 0, TAU); c.fill(); c.restore();
+    const pc = wilt > 0 ? HB.skins.lerpHex('#FFFFFF', '#CDB892', wilt) : '#FFFFFF';
+    for (let i = 0; i < 5; i++) {
+      if (i >= pet) continue;
+      const a = -Math.PI / 2 + i * TAU / 5 + Math.sin(t * 2 + i) * .04;
+      const d = R * .42, px = Math.cos(a) * d, py = Math.sin(a) * d + wilt * R * .18;
+      c.save(); c.translate(px, py); c.rotate(a + wilt * .5 * Math.sign(Math.cos(a) || 1));
+      c.fillStyle = 'rgba(0,0,0,.18)'; c.beginPath(); c.ellipse(R * .03, R * .04, R * .36 * (1 - wilt * .2), R * .15, 0, 0, TAU); c.fill();
+      c.fillStyle = pc; c.beginPath(); c.ellipse(0, 0, R * .36 * (1 - wilt * .2), R * .15, 0, 0, TAU); c.fill();
+      c.strokeStyle = 'rgba(200,200,215,.6)'; c.lineWidth = .7; c.beginPath(); c.moveTo(-R * .18, 0); c.lineTo(R * .2, 0); c.stroke();
+      c.restore();
+    }
+    const cg = c.createRadialGradient(-R * .05, -R * .06, 0, 0, 0, R * .2);
+    cg.addColorStop(0, '#FFF27A'); cg.addColorStop(.7, '#F5B800'); cg.addColorStop(1, '#C98A00');
+    c.fillStyle = cg; c.beginPath(); c.arc(0, 0, R * .22, 0, TAU); c.fill();
+    c.fillStyle = 'rgba(150,90,0,.45)'; for (let i = 0; i < 7; i++) { const a = i * 2.4; c.beginPath(); c.arc(Math.cos(a) * R * .1, Math.sin(a) * R * .1, R * .025, 0, TAU); c.fill(); }
+    c.restore();
+    if (board) {
+      const k = clamp(left / DAISY_T), hue = 30 + 90 * k;
+      c.save(); c.lineWidth = 2.2; c.lineCap = 'round';
+      c.strokeStyle = 'rgba(0,0,0,.25)'; c.beginPath(); c.arc(x, y, R * .98, 0, TAU); c.stroke();
+      c.strokeStyle = `hsla(${hue},85%,65%,${left < 6 ? .6 + .4 * Math.sin(t * 10) : .85})`;
+      c.beginPath(); c.arc(x, y, R * .98, -Math.PI / 2, -Math.PI / 2 + TAU * k); c.stroke(); c.restore();
+    }
+  }
+  /** Оторванные лепестки висят над ромашкой и мягко покачиваются. */
+  function drawTorn(c, cl, t) {
+    const n = 5 - cl.dPet;
+    for (let j = 0; j < n; j++) {
+      const x = cl.x + (j - (n - 1) / 2) * 11, y = cl.y - S * 1.35 + Math.sin(t * 2.2 + j * 1.3) * 3;
+      c.save(); c.translate(x, y); c.rotate(Math.sin(t * 1.4 + j) * .5 + j);
+      c.save(); c.globalCompositeOperation = 'lighter';
+      const g = c.createRadialGradient(0, 0, 0, 0, 0, 10); g.addColorStop(0, 'rgba(255,250,210,.45)'); g.addColorStop(1, 'rgba(255,250,210,0)');
+      c.fillStyle = g; c.beginPath(); c.arc(0, 0, 10, 0, TAU); c.fill(); c.restore();
+      c.fillStyle = '#FFFFFF'; c.beginPath(); c.ellipse(0, 0, 6, 2.6, 0, 0, TAU); c.fill();
+      c.restore();
+    }
+  }
+  function drawAscend(c) {
+    const a = ascend; if (!a) return;
+    const k = clamp(a.t / 1.6), rise = eo(k) * 80, y = a.y - rise, fade = clamp((a.t - 1.3) / .5);
+    c.save(); c.globalCompositeOperation = 'lighter';
+    const halo = c.createRadialGradient(a.x, y, 0, a.x, y, 70 + 40 * k);
+    halo.addColorStop(0, `rgba(255,255,240,${.7 * k})`); halo.addColorStop(1, 'rgba(255,255,240,0)');
+    c.fillStyle = halo; c.beginPath(); c.arc(a.x, y, 110, 0, TAU); c.fill(); c.restore();
+    // Лепестки кружатся вихрем и поднимаются вместе с цветком.
+    for (let j = 0; j < 5; j++) {
+      const an = a.t * (4 + a.t * 3) + j * TAU / 5, r = 30 + 14 * Math.sin(a.t * 3 + j) + fade * 60;
+      const px = a.x + Math.cos(an) * r, py = y + Math.sin(an) * r * .45;
+      c.save(); c.globalAlpha = 1 - fade * .8; c.translate(px, py); c.rotate(an); c.fillStyle = '#FFFFFF'; c.beginPath(); c.ellipse(0, 0, 7, 3, 0, 0, TAU); c.fill(); c.restore();
+    }
+    if (fade < 1) { c.save(); c.globalAlpha = 1 - fade; drawDaisy(c, a.x, y, S * (1 + .5 * k), time, 0, DAISY_T, false); c.restore(); }
+    if (fade > 0) { c.save(); c.globalCompositeOperation = 'lighter'; const w = c.createRadialGradient(a.x, y, 0, a.x, y, 40 * fade + 10); w.addColorStop(0, `rgba(255,255,255,${fade})`); w.addColorStop(1, 'rgba(255,255,255,0)'); c.fillStyle = w; c.beginPath(); c.arc(a.x, y, 60, 0, TAU); c.fill(); c.restore(); }
+  }
   function startEnding() {
     mode = 'ending'; endT = 0;
     cells.forEach(cl => { if (cl.ci >= 0) cl.gt = .35 + Math.hypot(cl.x - 180, cl.y - CY) / 500; });
@@ -614,20 +804,57 @@
     if (isRecord) { confetti(90); HB.sfx.record(); HB.haptic('record'); }
     HB.ui.showOver({ score, best, isRecord, lines: stat.lines, maxCombo: stat.maxCombo, honey: lastAward, canUndo: canUndo() });
   }
+  /**
+   * Три фигуры, которые точно встают одна за другой. Каждая следующая подбирается на поле,
+   * где предыдущая уже стоит (с очисткой собранных линий), и лучше всего та, что собирает линии.
+   */
+  function rescuePieces() {
+    const occ = new Set(cells.filter(c => c.ci >= 0).map(c => c.idx));
+    const free = (q, r) => { const c = map.get(key(q, r)); return c && !occ.has(c.idx); };
+    const out = [], used = new Set();
+    for (let n = 0; n < 3; n++) {
+      let best = null;
+      SH.forEach((shape, si) => {
+        if (used.has(si)) return;
+        for (const cl of cells) {
+          const aq = cl.q - shape[0][0], ar = cl.r - shape[0][1];
+          if (!shape.every(([dq, dr]) => free(aq + dq, ar + dr))) continue;
+          const put = new Set(shape.map(([dq, dr]) => map.get(key(aq + dq, ar + dr)).idx));
+          const done = lines.filter(l => l.every(c => occ.has(c.idx) || put.has(c.idx)));
+          // Больше линий — лучше, крупные фигуры чуть ценнее, немного случайности для разнообразия.
+          const sc = done.length * 10 + shape.length * .6 + Math.random() * 2.5;
+          if (!best || sc > best.sc) best = { sc, si, shape, put, done };
+        }
+      });
+      if (!best) break;
+      used.add(best.si);
+      best.put.forEach(i => occ.add(i));
+      best.done.forEach(l => l.forEach(c => occ.delete(c.idx)));
+      out.push(best.shape);
+    }
+    while (out.length < 3) out.push([[0, 0]]);
+    return out;
+  }
+  /** Второй шанс: вместо конца игры фигуры в лотке меняются на подходящие. */
   function undo() {
-    if (!canUndo()) return false;
+    if (!canUndo() || (mode !== 'over' && mode !== 'ending')) return false;
     if (mode === 'over') { HB.profile.honey = Math.max(0, HB.profile.honey - lastAward); HB.profile.games--; HB.saveProfile(); }
-    restore(snap);
-    snap = null; undoCharges--;
-    shown = score; mode = 'play'; endT = 0;
-    cells.forEach(c => { if (c.ci >= 0) c.pt = .3; });
-    HB.sfx.undo(); HB.haptic('undo');
-    showBanner('ХОД ОТМЕНЁН', SKY);
+    undoCharges--; snap = null;
+    mode = 'play'; endT = 0; inputOn = true;
+    cells.forEach(c => { c.gt = -1; });
+    const shapes = rescuePieces();
+    tray = shapes.map((sh, i) => makePiece(i, .15 + i * .12, sh, rand(6)));
+    updateFits();
+    HB.sfx.undo(); HB.sfx.refill(); HB.haptic('undo');
+    showBanner('ВТОРОЙ ШАНС!', SKY);
+    rings.push({ x: 180, y: TY, t: 0, color: SKY, big: true });
+    for (let i = 0; i < 24; i++) { const a = rnd(0, TAU), v = rnd(60, 200); parts.push({ k: 'star4', soft: true, x: 180 + rnd(-120, 120), y: TY + rnd(-20, 20), vx: Math.cos(a) * v, vy: Math.sin(a) * v - 60, g: 40, t: -rnd(0, .3), life: rnd(.6, 1.1), color: i % 2 ? '#FFFFFF' : SKY, r: rnd(2.5, 4.5) }); }
     save();
     return true;
   }
   function newGame() {
-    cells.forEach(c => { c.ci = -1; c.bomb = false; c.fire = false; c.ice = false; c.frozen = false; c.sun = false; c.pt = 9; c.fx = null; c.gt = -1; });
+    cells.forEach(c => { c.ci = -1; c.bomb = false; c.fire = false; c.ice = false; c.frozen = false; c.sun = false; c.daisy = false; c.pt = 9; c.fx = null; c.gt = -1; });
+    gifts = []; ascend = null;
     score = shown = 0; combo = miss = 0; stat = { lines: 0, maxCombo: 0, clears: 0 };
     pending = []; charge = 0; undoCharges = 0; snap = null; lastAward = 0; hold = null; holdHint = false;
     best = HB.best(); bestAtStart = best; recordShown = false; isRecord = false;
@@ -666,17 +893,22 @@
     { id: 'sun', g: ['sun'], need: ['sun'], name: 'Солнечная вспышка', desc: 'Разбитое солнце бьёт лучом с неба по всей своей зоне.', set: s => { s.row(); s.put(-3, 0, 'sun', 3); s.fill(18); } },
     { id: 'sunauto', g: ['sun'], need: ['sun'], name: 'Луч бьёт сам', desc: 'Солнце на пределе: на следующий ход луч ударит без твоей помощи.', set: s => { s.put(-2, -1, 'sun', 3); s.fill(22); } },
     { id: 'binary', g: ['sun'], need: ['sun'], name: 'Двойная звезда', desc: 'Луч задел другое солнце, и между ними вспыхивает мост света.', set: s => { s.row(); s.put(-3, 0, 'sun', 2); s.put(-2, -2, 'sun', 1); s.fill(14); } },
+    { id: 'daisy1', g: ['daisy'], need: ['daisy'], len: 4.6, name: 'Ромашка: 1-й лепесток', desc: 'Ряд сгорел, а ромашка осталась. Лепесток отрывается, и цветок дарит соту, которая закроет ряд.', set: s => { s.row(); s.put(2, 0, 'daisy', 5); [-3, -2, -1, 0, 1, 3, 4].forEach(q => s.put(q, -1, 'ci')); s.region((q, r) => r >= 2, 12); } },
+    { id: 'daisy2', g: ['daisy'], need: ['daisy'], len: 4.2, name: 'Ромашка: 2-й лепесток', desc: 'Второй лепесток превращает одну из твоих фигур в особую.', piece2: true, set: s => { s.row(); s.put(2, 0, 'daisy', 4); s.fill(14); } },
+    { id: 'daisy3', g: ['daisy'], need: ['daisy'], len: 4.2, name: 'Ромашка: 3-й лепесток', desc: 'Третий лепесток меняет фигуры на идеальные: они точно встанут и помогут собрать линии.', set: s => { s.row(); s.put(2, 0, 'daisy', 3); s.fill(18); } },
+    { id: 'daisy4', g: ['daisy'], need: ['daisy'], len: 4.4, name: 'Ромашка: лепестковый вихрь', desc: 'Четвёртый лепесток поднимает вихрь и сметает все соты в двух кольцах вокруг цветка.', set: s => { s.row(); s.put(2, 0, 'daisy', 2); s.fill(28); } },
+    { id: 'daisy5', g: ['daisy'], need: ['daisy'], len: 5.6, name: 'Ромашка: вознесение', desc: 'Пятый лепесток: вихрь лепестков, цветок возносится в столбе света, и всё поле очищается.', set: s => { s.row(); s.put(2, 0, 'daisy', 1); s.fill(30); } },
     { id: 'chaos', g: ['multi'], need: ['bolt', 'bomb', 'ice'], len: 5.2, name: 'Стихийный хаос', desc: 'Три разные стихии в одной цепочке: очки ×2, радужные волны и замедление.', piece: 'bolt', set: s => { s.row(); s.put(2, 0, 'bomb'); s.put(-2, 0, 'ice'); s.fill(14); } },
     { id: 'frostsun', g: ['multi'], need: ['ice', 'sun', 'bomb'], len: 5.4, name: 'Мороз + солнце + бомба', desc: 'Призма, термояд и хаос разом: радужные лучи и ядерная вспышка.', set: s => { s.row(); s.put(-3, 0, 'sun', 2); s.put(-3, -1, 'ice'); s.put(-2, -1, 'bomb'); s.fill(18); } },
     { id: 'apocalypse', g: ['multi'], need: ['bolt', 'bomb', 'ice', 'fire', 'sun'], len: 5.8, name: 'Апокалипсис', desc: 'Четыре и больше стихий в одной цепочке: очки ×3 и всё, что есть в игре.', piece: 'bolt', set: s => { s.row(); s.put(2, 0, 'bomb'); s.put(-2, 0, 'ice'); s.put(3, 0, 'fire'); s.put(-4, 0, 'sun', 2); s.fill(18); } }
   ];
   function mulberry(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
   function setupCombo(cb) {
-    cells.forEach(c => { c.ci = -1; c.bomb = c.fire = c.ice = c.frozen = c.sun = false; c.sunStage = 0; c.fx = null; c.gt = -1; c.pt = 9; c.born = time; });
+    cells.forEach(c => { c.ci = -1; c.bomb = c.fire = c.ice = c.frozen = c.sun = c.daisy = false; c.sunStage = 0; gifts = []; ascend = null; c.fx = null; c.gt = -1; c.pt = 9; c.born = time; });
     const rn = HB.skins.srng(cb.id.length * 131 + 7), taken = new Set();
     const s = {
       row(except = [0]) { cells.forEach(c => { if (c.r === 0 && !except.includes(c.q)) { c.ci = (c.q + 9) % 6; } }); },
-      put(q, r, kind, stage = 0) { const c = map.get(key(q, r)); if (!c) return; c.ci = c.ci >= 0 ? c.ci : Math.floor(rn() * 6); c[kind] = true; if (kind === 'sun') c.sunStage = stage; taken.add(c); },
+      put(q, r, kind, stage = 0) { const c = map.get(key(q, r)); if (!c) return; c.ci = c.ci >= 0 ? c.ci : Math.floor(rn() * 6); if (kind === 'ci') return; c[kind] = true; if (kind === 'sun') c.sunStage = stage; if (kind === 'daisy') { c.dPet = stage || 5; c.dT = 30; c.dAsc = false; } taken.add(c); },
       ring(q, r) { const c0 = map.get(key(q, r)); ringOf(c0).forEach(c => { if (c.ci < 0) c.ci = Math.floor(rn() * 6); }); },
       region(f, n) { cells.filter(c => c.ci < 0 && f(c.q, c.r) && !(c.q === 0 && c.r === 0)).slice(0, n).forEach(c => { c.ci = Math.floor(rn() * 6); }); },
       fill(n) {
@@ -688,11 +920,12 @@
     const sp = cb.piece;
     tray = [makePiece(0, 0, [[0, 0]], 3, sp === 'bomb' ? 0 : -1, null, sp === 'bolt' ? 0 : -1, sp === 'fire' ? 0 : -1, sp === 'ice' ? 0 : -1, sp === 'sun' ? 0 : -1), null, null];
     tray[0].delay = 0; hold = null;
+    if (cb.piece2) { tray[1] = makePiece(1, 0, [[0, 0], [1, 0], [0, 1]], 1); tray[2] = makePiece(2, 0, [[0, 0], [1, 0]], 4); }
     score = 0; shown = 0; combo = 0; miss = 0; pending = [];
     updateFits();
   }
   let demo = null, lastShake = 0;
-  const clearFx = () => { parts = []; rings = []; floats = []; banners = []; splats = []; booms = []; strikes = []; flames = []; sunBeams = []; hudFx = []; slowmo = freeze = shake = punch = whiteFlash = 0; };
+  const clearFx = () => { gifts = []; ascend = null; parts = []; rings = []; floats = []; banners = []; splats = []; booms = []; strikes = []; flames = []; sunBeams = []; hudFx = []; slowmo = freeze = shake = punch = whiteFlash = 0; };
   /** Открыть показ комбо id. Если показ уже идёт, партия уже отложена: просто переключаем ролик. */
   function startDemo(id, onEnd, onDone) {
     const cb = COMBOS.find(c => c.id === id); if (!cb) return;
@@ -752,7 +985,7 @@
     demoPlace();
     cb.seed = keep;
     const out = bannerLog;
-    Math.random = saved.rnd; demo = null;
+    Math.random = saved.rnd; demo = null; gifts = []; ascend = null;
     parts = []; rings = []; floats = []; banners = []; splats = []; booms = []; strikes = []; flames = []; sunBeams = [];
     restore(saved.s); mode = saved.mode;
     return out;
@@ -922,6 +1155,7 @@
     }
     time += dt;
     if (demo) updateDemo(dt);
+    updateDaisies(dt);
     HB.skins.tick(dt);
     if (shake > lastShake + 4) HB.skins.stir(Math.min(1.4, shake / 22), 180, CY);
     lastShake = shake;
@@ -1401,7 +1635,10 @@
       if (cl.bomb) drawBomb(c, cl.x, cl.y, S * sc, time + cl.q);
       if (cl.frozen) drawFrost(c, cl.x, cl.y, S * .93 * sc, clamp((time - cl.frzT) / .8), cl.frzAng, cl.idx);
       if (cl.ice) drawIce(c, cl.x, cl.y, S * sc, time + cl.q);
+      if (cl.daisy) drawDaisy(c, cl.x, cl.y, S * sc, time + cl.q, cl.dPet, cl.dT, true);
     }
+    cells.forEach(cl => { if (cl.daisy && cl.dPet < 5) drawTorn(c, cl, time); });
+    drawAscend(c);
     cells.forEach(cl => { if (cl.ci >= 0 && cl.ice) iceLight(c, cl.x, cl.y, time); });
     const lit = cells.filter(cl => cl.ci >= 0 && cl.fire);
     lit.forEach(cl => fireLight(c, cl.x, cl.y, time));
@@ -1483,6 +1720,7 @@
       if (k === p.fire) { c.globalAlpha = alpha; drawBonfire(c, px, py, S * sc, time + k, .85); c.globalAlpha = 1; }
       if (k === p.ice) { c.globalAlpha = alpha; drawIce(c, px, py, S * sc, time + k); c.globalAlpha = 1; }
       if (k === p.sun) { c.globalAlpha = alpha; drawSun(c, px, py, S * sc, time + k, 0); c.globalAlpha = 1; }
+      if (k === p.daisy) { c.globalAlpha = alpha; drawDaisy(c, px, py, S * sc, time + k); c.globalAlpha = 1; }
     });
   }
   function drawTray(c) {
@@ -1533,7 +1771,7 @@
     const [px, py] = BTN.pause();
     c.beginPath(); c.arc(px, py, 19, 0, TAU); c.fillStyle = 'rgba(255,255,255,.09)'; c.fill();
     c.fillStyle = '#E4E0FF'; rr(c, px - 7, py - 8, 5, 16, 2); c.fill(); rr(c, px + 2, py - 8, 5, 16, 2); c.fill();
-    if (canUndo() && mode === 'play') {
+    if (false) {
       const [ux, uy] = BTN.undo(), pulse = 1 + .06 * Math.sin(time * 5);
       c.save(); c.translate(ux, uy); c.scale(pulse, pulse);
       c.beginPath(); c.arc(0, 0, 19, 0, TAU); c.fillStyle = 'rgba(76,201,240,.22)'; c.fill();
@@ -1591,6 +1829,7 @@
         else if (k2 === 'fire') drawBonfire(c, ix, by - 3, 10, time, .8);
         else if (k2 === 'ice') drawIce(c, ix, by, 12, time);
         else if (k2 === 'sun') drawSun(c, ix, by, 11, time, 0);
+        else if (k2 === 'daisy') drawDaisy(c, ix, by, 11, time);
         else drawBomb(c, ix, by, 11, time);
       });
       for (let i = 0; i < need; i++) {

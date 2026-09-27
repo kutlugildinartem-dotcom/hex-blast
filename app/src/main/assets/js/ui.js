@@ -129,8 +129,8 @@
   tap($('#o-undo'), () => { overData = null; close('over'); HB.game.undo(); settle(); });
 
   /* ---------- комбо с живым показом ---------- */
-  const GROUPS = [['bomb', '💣 Бомба'], ['bolt', '⚡ Молния'], ['fire', '🔥 Костёр'], ['ice', '❄️ Лёд'], ['sun', '☀️ Солнце'], ['multi', '✨ Несколько стихий']];
-  const SPNAME = { bomb: 'бомбу', bolt: 'молнию', fire: 'костёр', ice: 'лёд', sun: 'солнце' };
+  const GROUPS = [['bomb', '💣 Бомба'], ['bolt', '⚡ Молния'], ['fire', '🔥 Костёр'], ['ice', '❄️ Лёд'], ['sun', '☀️ Солнце'], ['daisy', '🌼 Ромашка'], ['multi', '✨ Несколько стихий']];
+  const SPNAME = { daisy: 'ромашку', bomb: 'бомбу', bolt: 'молнию', fire: 'костёр', ice: 'лёд', sun: 'солнце' };
   renders.combos = () => {
     const sp = HB.settings.specials || ['bomb'];
     $('#combo-groups').innerHTML = GROUPS.map(([g, title]) => {
@@ -264,7 +264,8 @@
     bolt: 'Молния: бьёт по всей линии, а если замкнула ряд, ещё и кольцом вокруг.',
     fire: 'Костёр: освещает соседей, а сгорая, пускает огонь по 6–8 случайным сотам.',
     ice: 'Лёд: замораживает соседей. Замёрзшие соты звонко лопаются и дают бонус, а сам лёд взрывается кольцом.',
-    sun: 'Солнце: растёт каждый ход на кольцо (до трёх). Разобьёшь раньше — ударит луч по своей зоне, а на четвёртый ход луч ударит сам.'
+    sun: 'Солнце: растёт каждый ход на кольцо (до трёх). Разобьёшь раньше — ударит луч по своей зоне, а на четвёртый ход луч ударит сам.',
+    daisy: 'Ромашка: живёт 30 секунд и не сгорает. Каждый ряд через неё отрывает лепесток и дарит награду, а пятый лепесток очищает всё поле.'
   };
   const SPECIAL_DESC = {
     bomb: 'Сота с фитилём. Сгорает в линии и взрывает соседей. Каждый следующий взрыв в цепочке даёт вдвое больше очков.',
@@ -297,6 +298,7 @@
     HB.settings[i.dataset.set] = i.checked;
     HB.saveSettings();
     if (i.dataset.set === 'sound') { HB.sfx.setVolume(); HB.sfx.unlock(); }
+    if (i.dataset.set === 'sound' || i.dataset.set === 'music') { if (HB.settings.sound && HB.settings.music) HB.music.play(); else HB.music.stop(); }
     HB.sfx.toggle(i.checked); HB.haptic('tick');
     HB.game.refreshSettings();
     syncSettings();
@@ -307,6 +309,7 @@
     HB.saveSettings();
     syncSettings();
     HB.sfx.click();
+    if (k === 'track') HB.music.play(v);
     if (k === 'haptics') HB.haptic(v >= 3 ? 'bomb' : 'clear', 8, 1 | (2 << 8));
     else if (k === 'special' && v !== 'bomb') { HB.sfx.thunder(); HB.haptic('thunder'); }
     else HB.haptic('tick');

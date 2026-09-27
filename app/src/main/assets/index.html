@@ -48,7 +48,7 @@
     <p class="muted" id="o-best">Лучший: <b>0</b></p>
     <p class="muted small" id="o-stats"></p>
     <div class="honey-earn" id="o-honey-wrap">+<b id="o-honey">0</b><i class="honey big"></i></div>
-    <button class="btn undo" id="o-undo" type="button" hidden>↶ Отменить последний ход</button>
+    <button class="btn undo" id="o-undo" type="button" hidden>✦ Второй шанс: новые фигуры</button>
     <button class="btn-play" id="o-again" type="button">Ещё раз</button>
     <button class="btn-link" id="o-menu" type="button">В меню</button>
   </div>
@@ -85,7 +85,7 @@
       <label class="row"><span class="txt"><b>Особые соты</b><small>Бомбы, молнии, костры и лёд, которые иногда приходят вместе с фигурами. Можно включить любые.</small></span><input type="checkbox" class="switch" data-set="bomb"></label>
       <div class="sub" data-show="bomb">
         <div class="row-col"><b>Какие</b>
-          <div class="seg" data-multi="specials"><button type="button" data-v="bomb">Бомба</button><button type="button" data-v="bolt">Молния</button><button type="button" data-v="fire">Костёр</button><button type="button" data-v="ice">Лёд</button><button type="button" data-v="sun">Солнце</button></div>
+          <div class="seg" data-multi="specials"><button type="button" data-v="bomb">Бомба</button><button type="button" data-v="bolt">Молния</button><button type="button" data-v="fire">Костёр</button><button type="button" data-v="ice">Лёд</button><button type="button" data-v="sun">Солнце</button><button type="button" data-v="daisy">Ромашка</button></div>
           <small id="special-desc"></small>
         </div>
         <button class="row link" type="button" data-open="combos"><span class="txt"><b>Все комбо</b><small>Список всех сочетаний с живым показом прямо на поле</small></span><span class="chev">›</span></button>
@@ -98,7 +98,7 @@
         </div>
       </div>
       <label class="row"><span class="txt"><b>Запасная ячейка</b><small>Перетащи фигуру в ячейку слева от лотка, чтобы приберечь её на потом. Можно менять местами.</small></span><input type="checkbox" class="switch" data-set="hold"></label>
-      <label class="row"><span class="txt"><b>Отмена хода</b><small>Побей рекорд, и получишь одну отмену хода на эту партию.</small></span><input type="checkbox" class="switch" data-set="undo"></label>
+      <label class="row"><span class="txt"><b>Второй шанс</b><small>Побей рекорд, и когда ходы кончатся, игра один раз заменит фигуры на те, что точно встанут и помогут собрать линии.</small></span><input type="checkbox" class="switch" data-set="undo"></label>
     </div>
 
     <h3 class="sec">Мои соты</h3>
@@ -114,6 +114,10 @@
     <div class="card">
       <label class="row"><span class="txt"><b>Звуки</b></span><input type="checkbox" class="switch" data-set="sound"></label>
       <div class="row-col" data-show="sound"><b>Громкость</b><input type="range" id="vol" min="0" max="100" aria-label="Громкость"></div>
+      <label class="row" data-show="sound"><span class="txt"><b>Музыка</b><small>Тихое войлочное пианино на фоне. Три пьесы, каждая немного меняется от круга к кругу.</small></span><input type="checkbox" class="switch" data-set="music"></label>
+      <div class="row-col" data-show="music"><b>Мелодия</b>
+        <div class="seg" data-seg="track"><button type="button" data-v="morning">Утро</button><button type="button" data-v="rain">Тёплый дождь</button><button type="button" data-v="lullaby">Колыбельная</button></div>
+      </div>
       <div class="row-col"><b>Вибрация</b>
         <div class="seg" data-seg="haptics"><button type="button" data-v="0">Выкл</button><button type="button" data-v="1">Мягко</button><button type="button" data-v="2">Сочно</button><button type="button" data-v="3">Космос</button></div>
         <small id="hap-desc"></small>
