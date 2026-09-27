@@ -79,6 +79,27 @@ final class Haptics {
                 if (cosmos) p.on(350, 160).off(40).on(300, 90);
                 break;
             }
+            case "freeze": {
+                // Замерзание: частая мелкая дрожь, которая нарастает и стихает, как хруст кристаллов.
+                for (int i = 0; i < 16; i++) { int amp = (int) (60 + 110 * Math.sin(i / 16.0 * Math.PI)); p.on(8, amp).off(40); }
+                break;
+            }
+            case "shatter": {
+                java.util.Random r = new java.util.Random();
+                p.on(70, 255).off(25);
+                for (int i = 0; i < 10; i++) p.on(10 + r.nextInt(12), 90 + r.nextInt(100)).off(20 + r.nextInt(40));
+                break;
+            }
+            case "icestorm": {
+                // Нарастающее напряжение, пауза, мощный раскол и долгий звенящий хвост.
+                for (int i = 0; i < 12; i++) p.on(10, 50 + i * 12).off(38 - i * 2);
+                p.off(40).on(160, 255).off(25).on(60, 255).off(20);
+                java.util.Random r = new java.util.Random();
+                int amp = 240;
+                for (int i = 0; i < 20; i++) { p.on(15 + r.nextInt(25), Math.max(40, amp - r.nextInt(70))).off(15 + r.nextInt(30)); amp -= 9; }
+                if (cosmos) p.on(300, 140).off(40).on(250, 80);
+                break;
+            }
             case "ignite": p.on(30, 90).off(20).on(60, 160).off(20).on(40, 110); break;
             case "fire": {
                 // Костёр: вспышка, затем неровная дрожь с короткими «щелчками» дров.

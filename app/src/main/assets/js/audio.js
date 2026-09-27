@@ -117,6 +117,16 @@
     s.connect(f); f.connect(g); out(g, pan, rev);
     s.start(t); s.stop(t + attack + dur + .05);
   }
+  /** Мягкое насыщение (tanh): делает взрыв «рваным» и плотным, но без цифрового хрипа. */
+  let shaperCurve = null;
+  function shaper(k = 6) {
+    if (!shaperCurve) {
+      const n = 2048; shaperCurve = new Float32Array(n);
+      for (let i = 0; i < n; i++) { const x = i / (n - 1) * 2 - 1; shaperCurve[i] = Math.tanh(k * x) / Math.tanh(k); }
+    }
+    const w = ac.createWaveShaper(); w.curve = shaperCurve; w.oversample = '2x';
+    return w;
+  }
   /** Раскатистый рокот коричневого шума: основа грома. */
   function rumble(t, len, peak) {
     const s = ac.createBufferSource(); s.buffer = brown;
@@ -257,16 +267,19 @@
       o.connect(f); o.start(t); o.stop(t + attack + dur + .1);
     }));
   }
-  /** Ханг: стальной купол — основной тон, октава и квинта с долгим затуханием, мягкая атака. */
-  function handpan(freq, t, { vol = .12, pan = 0, dur = 3 } = {}) {
-    [[1, 1, dur], [2.001, .32, dur * .7], [2.99, .12, dur * .45], [4.02, .05, dur * .25]].forEach(([r, a, d], i) => {
+  /** Ханг: глубокий стальной купол — долгий основной тон с «биениями», мягкий суб и сияющие обертоны. */
+  function handpan(freq, t, { vol = .12, pan = 0, dur = 4.5 } = {}) {
+    [[1, 1, dur, 0], [1, .5, dur * .9, 1.3], [2.002, .28, dur * .75, -.9], [2.99, .09, dur * .45, .6], [.5, .18, dur * .8, 0]].forEach(([r, a, d, beat], i) => {
       const o = ac.createOscillator();
-      o.frequency.setValueAtTime(freq * r * (i ? 1 : 1.004), t);
-      if (!i) o.frequency.exponentialRampToValueAtTime(freq, t + .08);
-      const g = envGain(t, .006, vol * a, d); o.connect(g); out(g, pan, .6);
+      o.frequency.setValueAtTime(freq * r * (i ? 1 : 1.004) + beat, t);
+      if (!i) o.frequency.exponentialRampToValueAtTime(freq, t + .1);
+      const g = envGain(t, .008, vol * a, d); o.connect(g); out(g, pan + (i === 1 ? .3 : i === 2 ? -.3 : 0), .8);
       o.start(t); o.stop(t + d + .05);
     });
-    noiseHit(t, { vol: vol * .12, dur: .03, freq: 900, type: 'bandpass', q: 2, rev: .3, attack: .002, pan });
+    const f = ac.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = freq * 2; f.Q.value = 9;
+    const s = ac.createBufferSource(); s.buffer = noise; s.loop = true;
+    const g2 = envGain(t, .01, vol * .5, dur * .5); s.connect(f); f.connect(g2); out(g2, pan, .9); s.start(t); s.stop(t + dur * .5 + .05);
+    noiseHit(t, { vol: vol * .1, dur: .03, freq: 700, type: 'bandpass', q: 2, rev: .3, attack: .002, pan });
   }
   /** Маримба: тёплый тон + обертон 4× (свойство бруска) + мягкий стук колотушки. */
   function marimba(freq, t, { vol = .13, pan = 0, dur = 1.1 } = {}) {
@@ -391,10 +404,10 @@
       over(t) { [72, 67, 63, 58].forEach((m, i) => rhodes(mtof(m), t + i * .28, { vol: .06, dur: 1.8 })); rhodes(mtof(44), t + 1.1, { vol: .07, dur: 3 }); }
     },
     handpan: {
-      note(m, t, pan) { handpan(mtof(m - 12), t, { vol: .08, pan, dur: 2.2 }); },
+      note(m, t, pan) { handpan(mtof(m - 24), t, { vol: .085, pan, dur: 3 }); },
       chord(root, t, lines) {
-        [0, 7, 12, 16].forEach((st, i) => handpan(mtof(root - 12 + st), t + i * .09, { vol: .08, dur: 3.2, pan: (i - 1.5) * .3 }));
-        handpan(mtof(root - 24), t, { vol: .11, dur: 3.6 });
+        [0, 7, 12, 16].forEach((st, i) => handpan(mtof(root - 24 + st), t + i * .1, { vol: .08, dur: 4.5, pan: (i - 1.5) * .3 }));
+        handpan(mtof(root - 36), t, { vol: .12, dur: 5 });
         if (lines > 1) [19, 24].forEach((st, i) => handpan(mtof(root + st - 12), t + .45 + i * .15, { vol: .06, dur: 2.4 }));
       },
       place(n, pan, t) { thud(t, { vol: .22, from: 110, to: 50, dur: .14 }); handpan(mtof(penta(n, 48)), t, { vol: .09, pan, dur: 1.8 }); },
@@ -539,12 +552,26 @@
       const g = envGain(t, .3, .5, .9); o.connect(g); out(g, 0, .4); o.start(t); o.stop(t + 1.3);
       bell(mtof(40), t + .9, { vol: .06, dur: 1.5, ratio: 1.41, index: 3 });
     },
+    /**
+     * Бомба: треск искры в запале, глухой толчок давления изнутри — и порох рвёт корпус:
+     * суббас, плотный насыщенный взрыв, стук обломков и долгий гул.
+     */
     bomb() {
       if (!ready()) return; const t = now();
-      noiseHit(t, { vol: .7, dur: .9, freq: 4200, to: 60, type: 'lowpass', q: .7, rev: .5 });
-      thud(t, { vol: .9, from: 110, to: 28, dur: .7 });
-      for (let i = 0; i < 6; i++) noiseHit(t + .08 + Math.random() * .4, { vol: .12, dur: .05, freq: 3000 + Math.random() * 4000, type: 'highpass', pan: Math.random() * 1.6 - .8 });
-      bell(mtof(48), t + .02, { vol: .08, dur: 1.6, ratio: 1.41, index: 4 });
+      noiseHit(t, { vol: .07, dur: .05, freq: 6500, type: 'highpass', attack: .001, rev: .1 });
+      thud(t + .025, { vol: .5, from: 62, to: 44, dur: .05 });
+      const t2 = t + .075;
+      thud(t2, { vol: 1.15, from: 96, to: 20, dur: 1.3 });
+      const s = ac.createBufferSource(); s.buffer = brown;
+      const f = ac.createBiquadFilter(); f.type = 'lowpass'; f.Q.value = .6;
+      f.frequency.setValueAtTime(5200, t2); f.frequency.exponentialRampToValueAtTime(110, t2 + 1.2);
+      const pre = ac.createGain(); pre.gain.value = 3.2;
+      const g = envGain(t2, .002, .6, 1.4), ws = shaper(5);
+      s.connect(f); f.connect(pre); pre.connect(ws); ws.connect(g); out(g, 0, .75);
+      s.start(t2); s.stop(t2 + 1.6);
+      noiseHit(t2, { vol: .35, dur: .12, freq: 2600, to: 700, type: 'bandpass', q: .7, rev: .4, attack: .001 });
+      for (let i = 0; i < 10; i++) noiseHit(t2 + .18 + Math.random() * .9, { vol: .03 + Math.random() * .05, dur: .02 + Math.random() * .02, freq: 400 + Math.random() * 900, type: 'lowpass', q: 1, rev: .3, attack: .001, pan: Math.random() * 1.6 - .8 });
+      rumble(t2 + .05, 2.6, 1);
     },
     /** Удар молнии: треск разряда, хлёсткий раскол и долгий раскатистый гром. */
     thunder() {
@@ -630,6 +657,65 @@
       if (!ready()) return;
       sfx.bomb(); sfx.bonfire(false);
       const t = now(); thud(t, { vol: .8, from: 70, to: 22, dur: 1.4 }); rumble(t + .05, 2.2, 1.1);
+    },
+    /** Замерзание: хруст растущих кристаллов, скрип льда, низкий стон и холодный звон. */
+    freeze() {
+      if (!ready()) return; const t = now();
+      for (let i = 0; i < 34; i++) {
+        const k = i / 34, tt = t + k * .9 + Math.random() * .05;
+        noiseHit(tt, { vol: .012 + .032 * Math.sin(k * Math.PI), dur: .004 + Math.random() * .006, freq: 2500 + Math.random() * 5000, type: 'bandpass', q: 3, rev: .35, attack: .001, pan: Math.random() * 1.4 - .7 });
+      }
+      noiseHit(t + .1, { vol: .08, dur: .5, freq: 900, to: 480, type: 'bandpass', q: 12, rev: .3, attack: .05 });
+      noiseHit(t + .45, { vol: .06, dur: .4, freq: 1400, to: 780, type: 'bandpass', q: 14, rev: .3, attack: .04 });
+      const o = ac.createOscillator(); o.frequency.setValueAtTime(115, t); o.frequency.exponentialRampToValueAtTime(68, t + .9);
+      const g = envGain(t, .1, .12, .8); o.connect(g); out(g, 0, .3); o.start(t); o.stop(t + 1);
+      bell(mtof(96), t + .2, { vol: .025, dur: 1.4, ratio: 2.756, index: .6 });
+      bell(mtof(103), t + .55, { vol: .02, dur: 1.6, ratio: 2.756, index: .6, pan: .4 });
+    },
+    /** Звонкий треск одной замёрзшей соты. */
+    iceCrack(x = 0) {
+      if (!ready()) return; const t = now(), pan = Math.max(-.8, Math.min(.8, x));
+      noiseHit(t, { vol: .12, dur: .08, freq: 3200, to: 1500, type: 'bandpass', q: 1.1, rev: .4, attack: .001, pan });
+      for (let i = 0; i < 4; i++) bell(mtof(90 + Math.random() * 14), t + .02 + i * (.03 + Math.random() * .05), { vol: .018, dur: .45, ratio: 2.756 + Math.random() * .4, index: .8, pan });
+    },
+    /** Ледяной взрыв: глухой удар, хруст и россыпь звенящих осколков. */
+    iceBurst(x = 0) {
+      if (!ready()) return; const t = now(), pan = Math.max(-.7, Math.min(.7, x));
+      thud(t, { vol: .55, from: 88, to: 30, dur: .55 });
+      noiseHit(t, { vol: .32, dur: .28, freq: 3600, to: 1200, type: 'bandpass', q: .9, rev: .6, attack: .001, pan });
+      for (let i = 0; i < 16; i++) { const k = Math.pow(Math.random(), 1.5); bell(mtof(86 + Math.random() * 22), t + .02 + k * .7, { vol: .016 + Math.random() * .02, dur: .4 + Math.random() * .6, ratio: 2.756 + Math.random() * .5, index: .8, pan: Math.max(-1, Math.min(1, pan + Math.random() * 1.2 - .6)) }); }
+    },
+    /** Ледяной веер: хруст бегущего льда в сторону удара и мощный раскол. */
+    iceFan(x = 0) {
+      if (!ready()) return; const t = now();
+      for (let i = 0; i < 18; i++) noiseHit(t + i * .02, { vol: .025, dur: .006, freq: 3000 + Math.random() * 4000, type: 'bandpass', q: 3, rev: .3, attack: .001, pan: Math.max(-1, Math.min(1, x + i / 18 * .6)) });
+      setTimeout(() => sfx.iceBurst(x), 330);
+      thud(t + .33, { vol: .8, from: 70, to: 22, dur: 1.2 });
+      rumble(t + .35, 1.8, .9);
+    },
+    /**
+     * Ледяной разряд: иней ползёт по трём линиям под нарастающее напряжение, потом
+     * глубокий удар и каскад осколков, плывущий по стерео, с хрустальным аккордом.
+     */
+    iceStorm() {
+      if (!ready()) return; const t = now(), hit = t + .62;
+      for (let i = 0; i < 40; i++) { const k = i / 40; noiseHit(t + k * .58, { vol: .01 + .03 * k, dur: .005, freq: 2500 + Math.random() * 5500, type: 'bandpass', q: 3, rev: .4, attack: .001, pan: Math.sin(i * 1.7) * .8 }); }
+      noiseHit(t, { vol: .22, dur: .6, freq: 250, to: 4200, type: 'bandpass', q: 2.5, rev: .6, attack: .5 });
+      noiseHit(t + .05, { vol: .07, dur: .55, freq: 800, to: 380, type: 'bandpass', q: 14, rev: .4, attack: .08 });
+      thud(hit, { vol: 1.15, from: 72, to: 18, dur: 2.2 });
+      noiseHit(hit, { vol: .45, dur: .4, freq: 4200, to: 900, type: 'bandpass', q: .8, rev: .9, attack: .001 });
+      for (let i = 0; i < 44; i++) { const k = Math.pow(Math.random(), 1.4); bell(mtof(84 + Math.random() * 26), hit + .03 + k * 1.6, { vol: .014 + Math.random() * .022, dur: .5 + Math.random() * .9, ratio: 2.756 + Math.random() * .5, index: .8, pan: Math.cos(k * 9 + i) * .95 }); }
+      [36, 43, 48, 55, 63].forEach((m, i) => bell(mtof(m + 24), hit + .1 + i * .06, { vol: .03, dur: 3.2, ratio: 2.756, index: .5, pan: (i - 2) * .35 }));
+      pad([mtof(48), mtof(55), mtof(63)], hit + .05, { vol: .045, attack: .2, dur: 2.6 });
+      rumble(hit + .02, 3.2, 1.2);
+    },
+    /** Паровой взрыв: лёд вскипает — шипение, хлопок и бурлящий пар. */
+    steam() {
+      if (!ready()) return; const t = now();
+      noiseHit(t, { vol: .3, dur: 1.3, freq: 3500, type: 'highpass', rev: .5, attack: .02 });
+      noiseHit(t, { vol: .2, dur: .9, freq: 600, to: 2400, type: 'bandpass', q: 1.2, rev: .6, attack: .05 });
+      thud(t, { vol: .6, from: 90, to: 32, dur: .6 });
+      for (let i = 0; i < 18; i++) noiseHit(t + .1 + Math.random() * 1, { vol: .03 + Math.random() * .03, dur: .015, freq: 500 + Math.random() * 700, type: 'bandpass', q: 4, rev: .3, attack: .003, pan: Math.random() * 1.4 - .7 });
     },
     fuse() {
       if (!ready()) return; const t = now();

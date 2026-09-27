@@ -251,6 +251,40 @@
           c.beginPath(); c.ellipse(p.x, p.y, p.r * (.3 + k), p.r * (.22 + k * .75), 0, 0, TAU); c.stroke();
           break;
         }
+        case 'fireball': {
+          const R0 = p.r * (.45 + eo(k) * 1.1);
+          c.save(); c.globalAlpha = 1;
+          if (k < .55) {
+            c.globalCompositeOperation = 'lighter';
+            const g = c.createRadialGradient(p.x, p.y, 0, p.x, p.y, R0);
+            const hot = 1 - k / .55;
+            g.addColorStop(0, `rgba(255,250,220,${hot})`); g.addColorStop(.3, `rgba(255,200,90,${.9 * hot + .1})`);
+            g.addColorStop(.65, `rgba(255,110,30,${.7 * hot})`); g.addColorStop(1, 'rgba(120,30,10,0)');
+            c.fillStyle = g; c.beginPath(); c.arc(p.x, p.y, R0, 0, TAU); c.fill();
+          }
+          const sa = clamp((k - .25) / .4) * (1 - clamp((k - .7) / .3));
+          if (sa > 0) {
+            c.globalCompositeOperation = 'source-over';
+            const g2 = c.createRadialGradient(p.x, p.y, 0, p.x, p.y, R0 * 1.1);
+            g2.addColorStop(0, `rgba(45,32,28,${.75 * sa})`); g2.addColorStop(1, 'rgba(45,32,28,0)');
+            c.fillStyle = g2; c.beginPath(); c.arc(p.x, p.y, R0 * 1.1, 0, TAU); c.fill();
+          }
+          c.restore(); break;
+        }
+        case 'smoke2': {
+          const R0 = p.r * (1 + eo(k) * 1.8), a = .55 * Math.min(1, p.t * 4) * (1 - k);
+          const g = c.createRadialGradient(p.x, p.y, 0, p.x, p.y, R0);
+          g.addColorStop(0, `rgba(${p.color},${a})`); g.addColorStop(1, `rgba(${p.color},0)`);
+          c.globalAlpha = 1; c.fillStyle = g; c.beginPath(); c.arc(p.x, p.y, R0, 0, TAU); c.fill();
+          break;
+        }
+        case 'debris': {
+          c.save(); c.translate(p.x, p.y); c.rotate(p.rot);
+          c.beginPath(); c.moveTo(-p.r, -p.r * .4); c.lineTo(-p.r * .2, -p.r * .8); c.lineTo(p.r, -p.r * .2); c.lineTo(p.r * .5, p.r * .7); c.lineTo(-p.r * .6, p.r * .5); c.closePath(); c.fill();
+          const hot = 1 - clamp(p.t / .5);
+          if (hot > 0) { c.globalCompositeOperation = 'lighter'; c.strokeStyle = `rgba(255,140,40,${hot})`; c.lineWidth = 1.4; c.stroke(); }
+          c.restore(); break;
+        }
         case 'ink': {
           const r = p.r * (.35 + eo(k) * 1.4), g = c.createRadialGradient(p.x, p.y, 0, p.x, p.y, r);
           g.addColorStop(0, p.color); g.addColorStop(1, 'rgba(0,0,0,0)');
