@@ -551,6 +551,41 @@
       noiseHit(t, { vol: .06, dur: .5, freq: 500, to: 2500, type: 'bandpass', q: 1.5, rev: .5, attack: .15 });
       [0, 2, 4].forEach((k, i) => bell(mtof(penta(k + 7, 72)), t + .12 + i * .07, { vol: .035, dur: 1.2, ratio: 2, index: .8, pan: (i - 1) * .4 }));
     },
+    /** Пузыри: светлое стеклянное мерцание и воздушный выдох, без «бульков». */
+    bubbles() {
+      if (!ready()) return; const t = now();
+      noiseHit(t, { vol: .05, dur: .6, freq: 1800, to: 900, type: 'bandpass', q: .8, rev: .6, attack: .08 });
+      [0, 2, 4, 7].forEach((k, i) => bell(mtof(penta(k + 10, 72)), t + .05 + i * .06, { vol: .022, dur: 1, ratio: 3.01, index: .4, pan: (i - 1.5) * .5 }));
+    },
+    /** Лопнувший пузырь: крошечный мягкий «пф» в середине диапазона. */
+    bubblePop(x = 180) {
+      if (!ready()) return; const t = now(Math.random() * .03);
+      noiseHit(t, { vol: .035, dur: .05, freq: 1300 + Math.random() * 500, type: 'bandpass', q: 2.5, pan: (x - 180) / 220, rev: .3, attack: .004 });
+    },
+    /** Кристаллизация: нарастающий хруст инея и звонкий стеклянный рассып. */
+    crystal() {
+      if (!ready()) return; const t = now();
+      noiseHit(t, { vol: .06, dur: .5, freq: 3000, to: 6000, type: 'bandpass', q: 3, rev: .3, attack: .35 });
+      for (let i = 0; i < 6; i++) noiseHit(t + .1 + i * .06, { vol: .025, dur: .03, freq: 2400 + i * 250, type: 'bandpass', q: 4, pan: (Math.random() - .5), rev: .2 });
+      thud(t + .55, { vol: .25, from: 140, to: 50, dur: .25 });
+      noiseHit(t + .55, { vol: .09, dur: .5, freq: 5000, to: 1800, type: 'bandpass', q: 1.2, rev: .6 });
+      [96, 99, 103, 106, 110].forEach((m, i) => glassBell(mtof(m), t + .57 + i * .045, { vol: .02, dur: 1.4, pan: (i - 2) * .35 }));
+    },
+    /** Глитч: заикание цифрового сигнала, приглушённое и низкое, чтобы не резало уши. */
+    glitch() {
+      if (!ready()) return; const t = now();
+      const f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 2600; f.Q.value = .7;
+      const g = ac.createGain(); g.gain.value = 1; f.connect(g); out(g, 0, .15);
+      const seq = [0, .05, .08, .15, .17, .19, .27, .33];
+      seq.forEach((d, i) => {
+        const o = ac.createOscillator(); o.type = i % 3 ? 'square' : 'sawtooth';
+        const fr = [110, 220, 165, 330, 110, 440, 82, 165][i];
+        o.frequency.setValueAtTime(fr, t + d); o.frequency.exponentialRampToValueAtTime(fr * (i % 2 ? .5 : 1.5), t + d + .045);
+        const e = envGain(t + d, .003, .05, .05); o.connect(e); e.connect(f); o.start(t + d); o.stop(t + d + .07);
+      });
+      thud(t, { vol: .22, from: 90, to: 40, dur: .18 });
+      noiseHit(t + .1, { vol: .05, dur: .25, freq: 1200, type: 'bandpass', q: 1, rev: .1 });
+    },
     /** Сверхновая: плавная глубокая волна снизу и мерцание сверху, без треска. */
     supernova() {
       if (!ready()) return; const t = now();

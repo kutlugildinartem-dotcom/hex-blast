@@ -203,7 +203,6 @@
       holdT = setTimeout(() => {
         if (!p || p.moved) return; p.slow = true;
         HB.game.demoCtl({ slow: true, paused: false }); HB.sfx.hold(false); HB.sfx.slowTape(true); HB.haptic('tick');
-        flashState('🐢 Замедление', true);
       }, 230);
     });
     v.addEventListener('pointermove', e => {
@@ -216,7 +215,7 @@
       if (!p) return; clearTimeout(holdT);
       const dx = e.clientX - p.x, dy = e.clientY - p.y, q = p; p = null;
       $('#v-card').style.transform = '';
-      if (q.slow) { HB.game.demoCtl({ slow: false }); HB.sfx.slowTape(false); $('#v-state').classList.remove('on'); return; }
+      if (q.slow) { HB.game.demoCtl({ slow: false }); HB.sfx.slowTape(false); return; }
       const ax = Math.abs(dx), ay = Math.abs(dy);
       if (Math.max(ax, ay) > 50) { const d = ay >= ax ? (dy < 0 ? 1 : -1) : (dx < 0 ? 1 : -1); step(d); return; }
       if (!q.moved) {

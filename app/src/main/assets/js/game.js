@@ -846,8 +846,8 @@
     bgFlash = 1; bgFlashColor = '#FFD36B';
     for (let d = 0; d <= b.R; d++) rings.push({ x: b.x, y: b.y, t: -(.42 + d * .22), color: d % 2 ? '#FFB347' : '#FFF1C0', big: true, huge: d >= 2 });
     for (let i = 0; i < 46; i++) parts.push({ k: 'glow', soft: true, x: b.x + rnd(-w, w), y: rnd(-20, b.y), vx: rnd(-8, 8), vy: rnd(15, 50), g: 0, t: -rnd(0, .5), life: rnd(1.1, 1.8), color: 'rgba(255,245,210,.9)', r: rnd(.8, 1.8) });
-    (b.lines || []).forEach(([x1, y1, x2, y2]) => sunBeams.push({ kind: 'line', x: x1, y: y1, x2, y2, t: -.3, life: 1.3, w: w * .8 }));
-    (b.rays || []).forEach(([x2, y2, d]) => sunBeams.push({ kind: 'line', x: b.x, y: b.y, x2, y2, t: -.3, life: 1.4, w: w * .6, col: ['255,94,126', '255,184,77', '255,228,92', '94,224,138', '77,195,255', '154,123,255'][d % 6] }));
+    (b.lines || []).forEach(([x1, y1, x2, y2], i) => sunBeams.push({ kind: 'line', x: x1, y: y1, x2, y2, t: -.3 - i * .06, life: 1.3, w: w * .8, over: 40 }));
+    (b.rays || []).forEach(([x2, y2, d], i) => sunBeams.push({ kind: 'line', x: b.x, y: b.y, x2, y2, t: -.3 - i * .05, life: 1.45, w: w * .6, over: 90, col: ['255,94,126', '255,184,77', '255,228,92', '94,224,138', '77,195,255', '154,123,255'][d % 6] }));
     if (b.from) sunBeams.push({ kind: 'line', x: b.from[0], y: b.from[1], x2: b.x, y2: b.y, t: 0, life: 1.2, w: w * .7, col: '255,190,110' });
     if (b.mode === 'nuke') { blast(b.x, b.y, 1.8); whiteFlash = 2.2; }
     if (b.mode === 'flare') for (let i = 0; i < 34; i++) { const a = rnd(0, TAU), v = rnd(80, 220); parts.push({ k: 'flamep', x: b.x + Math.cos(a) * 14, y: b.y + Math.sin(a) * 14, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 60, g: -30, t: -rnd(.3, .6), life: rnd(.5, .9), color: '#FF8A00', r: rnd(10, 18) }); }
@@ -967,7 +967,16 @@
     }
     for (const s of strikes) s.t += dt;
     strikes = strikes.filter(s => s.t < (s.life || .6));
-    for (const s of sunBeams) s.t += dt;
+    for (const s of sunBeams) {
+      s.t += dt;
+      // Луч долетел до конца зоны: вспышка искр и кольцо в точке удара.
+      if (s.kind === 'line' && !s.hit && s.t >= .2) {
+        s.hit = true;
+        const col = `rgb(${s.col || '255,215,130'})`, ang = Math.atan2(s.y2 - s.y, s.x2 - s.x);
+        rings.push({ x: s.x2, y: s.y2, t: 0, color: col });
+        for (let i = 0; i < 9; i++) { const a = ang + rnd(-1.1, 1.1), v = rnd(90, 260); parts.push({ k: 'star4', soft: true, x: s.x2, y: s.y2, vx: Math.cos(a) * v, vy: Math.sin(a) * v, g: 60, t: 0, life: rnd(.4, .8), color: i % 3 ? col : '#FFFFFF', r: rnd(2, 4) }); }
+      }
+    }
     sunBeams = sunBeams.filter(s => s.t < s.life);
     if (combo >= 2 && mode === 'play') {
       hudAcc += dt * (10 + Math.min(combo, 8) * 5) * (1 - miss * .25);
@@ -1201,6 +1210,41 @@
     return [dx, dy];
   }
   /** Проработанный луч: широкое тёплое свечение, яркая середина, белое ядро и бегущие по лучу прожилки. */
+  /**
+   * Луч-выстрел: голова летит от солнца с замедлением, за ней тянется сужающийся луч,
+   * в конце жизни хвост догоняет голову и луч улетает, а не обрывается.
+   */
+  function shotBeam(c, s, a) {
+    const L = Math.hypot(s.x2 - s.x, s.y2 - s.y) || 1, ang = Math.atan2(s.y2 - s.y, s.x2 - s.x);
+    const k = s.t / s.life, over = s.over == null ? 60 : s.over;
+    const head = (L + over) * eo(clamp(s.t / .26)), tail = (L + over) * Math.pow(clamp((k - .5) / .5), 1.6);
+    const len = head - tail; if (len < 2) return;
+    const col = s.col || '255,215,130', w = s.w * (1 + .1 * Math.sin(s.t * 47 + s.x)) * (1 - .35 * clamp((k - .6) / .4));
+    c.save(); c.translate(s.x, s.y); c.rotate(ang); c.globalCompositeOperation = 'lighter';
+    // Поперечные слои, у головы луч заострён, дальше поля он гаснет по длине.
+    const fadeA = x => x <= L ? 1 : clamp(1 - (x - L) / over);
+    const layer = (ww, al, cc) => {
+      const tipL = Math.min(len * .45, ww * 5);
+      const g = c.createLinearGradient(tail, 0, head, 0);
+      const st = (x, v) => g.addColorStop(clamp((x - tail) / len), `rgba(${cc},${al * v * fadeA(x)})`);
+      st(tail, 0); st(tail + Math.min(len * .25, 30), 1);
+      if (L > tail && L < head) st(L, 1);
+      st(head - tipL, 1); st(head, .15);
+      c.fillStyle = g;
+      c.beginPath(); c.moveTo(tail, -ww * .6); c.lineTo(head - tipL, -ww); c.quadraticCurveTo(head, -ww * .2, head + ww * .4, 0); c.quadraticCurveTo(head, ww * .2, head - tipL, ww); c.lineTo(tail, ww * .6); c.closePath(); c.fill();
+    };
+    layer(w * 3.2, .18 * a, col); layer(w * 1.4, .5 * a, col); layer(w * .55, .85 * a, '255,248,230'); layer(w * .18, a, '255,255,255');
+    // Бегущие блики внутри луча.
+    for (let i = 0; i < 6; i++) { const off = tail + ((s.t * 2.2 + i * .17) % 1) * len; c.fillStyle = `rgba(255,255,255,${.35 * a * fadeA(off)})`; c.fillRect(off, (i - 2.5) * w * .12, len * .06, 1.2); }
+    // Голова-комета, пока луч летит.
+    if (s.t < .5) {
+      const hk = 1 - clamp(s.t / .5), hx = Math.min(head, L + over * .4);
+      const g = c.createRadialGradient(hx, 0, 0, hx, 0, w * 4.5);
+      g.addColorStop(0, `rgba(255,255,255,${hk * a})`); g.addColorStop(.3, `rgba(${col},${.6 * hk * a})`); g.addColorStop(1, `rgba(${col},0)`);
+      c.fillStyle = g; c.beginPath(); c.arc(hx, 0, w * 4.5, 0, TAU); c.fill();
+    }
+    c.restore();
+  }
   function beam(c, x1, y1, x2, y2, w, a, col, t) {
     const L = Math.hypot(x2 - x1, y2 - y1) || 1, ang = Math.atan2(y2 - y1, x2 - x1);
     c.save(); c.translate(x1, y1); c.rotate(ang); c.globalCompositeOperation = 'lighter';
@@ -1240,7 +1284,7 @@
         c.restore();
         beam(c, s.x, -60, s.x, s.y, s.w * (1 + .3 * (1 - k)), a, '255,215,130', s.t);
         lensFlare(c, s.x, s.y, a, s.w);
-      } else beam(c, s.x, s.y, s.x2, s.y2, s.w, a, s.col || '255,215,130', s.t);
+      } else shotBeam(c, s, Math.min(1, s.t / .06) * (.92 + .08 * Math.sin(s.t * 60)));
     }
   }
   /** Морозный узор: полупрозрачная корка, ветвистые кристаллы и ледяная кромка. */

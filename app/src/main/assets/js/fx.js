@@ -52,7 +52,10 @@
     { id: 'bloom', name: 'Цветение', price: 180, desc: 'Каждая сота распускается цветком и рассыпается лепестками' },
     { id: 'fireworks', name: 'Фейерверк', price: 200, desc: 'Ракеты взлетают и взрываются салютом' },
     { id: 'supernova', name: 'Сверхновая', price: 240, desc: 'Соты вспыхивают звёздами и расходятся кольцами света' },
-    { id: 'blackhole', name: 'Чёрная дыра', price: 260, desc: 'Соты затягивает в воронку' }
+    { id: 'blackhole', name: 'Чёрная дыра', price: 260, desc: 'Соты затягивает в воронку' },
+    { id: 'bubbles', name: 'Мыльные пузыри', price: 170, desc: 'Соты становятся переливающимися пузырями, всплывают и лопаются' },
+    { id: 'crystal', name: 'Кристаллизация', price: 230, desc: 'Соты промерзают в кристалл и рассыпаются алмазной пылью' },
+    { id: 'glitch', name: 'Глитч', price: 210, desc: 'Цифровой сбой: соты рвутся на полосы, двоятся цветом и исчезают' }
   ];
 
   /* ---------- физика ---------- */
@@ -90,6 +93,19 @@
           if (p.hx.length > (p.k === 'rocket' ? 18 : 10)) p.hx.splice(0, 2);
           if (p.k === 'trailspark') { p.vx *= Math.exp(-dt * 1.1); p.vy *= Math.exp(-dt * .6); }
           break;
+      }
+      if (p.k === 'bub2') { p.vx = Math.sin(p.t * 2.2 + p.ph) * 22; p.vy += (-46 - p.vy) * Math.min(1, dt * 2); }
+      if (p.k === 'bub2' && p.t >= p.life) {
+        for (let i = 0; i < 10; i++) { const a = i / 10 * TAU + rnd(-.2, .2), v = rnd(70, 150); out.push({ k: 'spark', x: p.x + Math.cos(a) * p.r, y: p.y + Math.sin(a) * p.r, vx: Math.cos(a) * v, vy: Math.sin(a) * v, g: 260, t: 0, life: rnd(.25, .45), color: RAINBOW[i % 6], r: rnd(.9, 1.5) }); }
+        out.push({ k: 'popring', x: p.x, y: p.y, vx: 0, vy: 0, g: 0, t: 0, life: .22, color: '#FFFFFF', r: p.r });
+        if (p.snd && HB.sfx.bubblePop) HB.sfx.bubblePop(p.x);
+        continue;
+      }
+      if (p.k === 'crys' && p.t >= p.life) {
+        const cols = ['#FFFFFF', '#DDF6FF', p.color];
+        for (let i = 0; i < 7; i++) { const a = rnd(0, TAU), v = rnd(80, 230); out.push({ k: 'tri', x: p.x + Math.cos(a) * 5, y: p.y + Math.sin(a) * 5, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 90, g: 720, t: 0, life: rnd(.55, .9), color: cols[i % 3], r: rnd(3, 6), rot: rnd(0, TAU), vr: rnd(-14, 14) }); }
+        for (let i = 0; i < 8; i++) { const a = rnd(0, TAU), v = rnd(20, 90); out.push({ k: 'star4', soft: true, x: p.x + rnd(-10, 10), y: p.y + rnd(-10, 10), vx: Math.cos(a) * v, vy: Math.sin(a) * v - 20, g: 30, t: 0, life: rnd(.6, 1.2), color: i % 2 ? '#FFFFFF' : '#BFEFFF', r: rnd(1.5, 3.5) }); }
+        continue;
       }
       if (p.k === 'rocket' && p.t >= p.life) {
         const n = 44;
@@ -320,6 +336,73 @@
           c.beginPath(); c.moveTo(0, -r); c.bezierCurveTo(r * .95, -r * .55, r * .65, r * .7, 0, r); c.bezierCurveTo(-r * .65, r * .7, -r * .95, -r * .55, 0, -r); c.fill();
           c.fillStyle = 'rgba(255,255,255,.4)'; c.beginPath(); c.ellipse(-r * .2, -r * .2, r * .25, r * .5, .3, 0, TAU); c.fill();
           c.restore(); break;
+        }
+        case 'bub2': {
+          // Плёнка пузыря: переливы цвета бегут по кругу, форма чуть дышит.
+          c.globalAlpha = Math.min(1, p.t * 5);
+          const r = p.r * Math.min(1, .35 + p.t * 3), wob = Math.sin(p.t * 8 + p.ph) * .06;
+          c.save(); c.translate(p.x, p.y); c.scale(1 + wob, 1 - wob);
+          const hue = (p.t * 90 + p.ph * 60) % 360;
+          const g = c.createRadialGradient(-r * .2, -r * .25, r * .1, 0, 0, r);
+          g.addColorStop(0, 'rgba(255,255,255,.04)'); g.addColorStop(.72, p.tint); g.addColorStop(.9, `hsla(${hue},90%,70%,.45)`); g.addColorStop(1, `hsla(${(hue + 120) % 360},90%,75%,.7)`);
+          c.fillStyle = g; c.beginPath(); c.arc(0, 0, r, 0, TAU); c.fill();
+          c.lineWidth = 1.1; c.strokeStyle = `hsla(${(hue + 200) % 360},90%,80%,.55)`; c.stroke();
+          c.fillStyle = 'rgba(255,255,255,.9)'; c.beginPath(); c.ellipse(-r * .4, -r * .42, r * .24, r * .12, -.7, 0, TAU); c.fill();
+          c.fillStyle = 'rgba(255,255,255,.5)'; c.beginPath(); c.arc(r * .38, r * .36, r * .07, 0, TAU); c.fill();
+          c.restore(); break;
+        }
+        case 'popring': c.globalAlpha = 1 - k; c.strokeStyle = 'rgba(255,255,255,.9)'; c.lineWidth = 1.2 * (1 - k) + .3; c.beginPath(); c.arc(p.x, p.y, p.r * (1 + k * .7), 0, TAU); c.stroke(); break;
+        case 'crys': {
+          // Промерзание: сота стекленеет от краёв к центру, по ней бегут грани и блики.
+          c.globalAlpha = 1;
+          const R = p.r, fz = clamp(k / .7);
+          c.save(); c.translate(p.x, p.y);
+          hexPath(c, 0, 0, R); c.fillStyle = p.color; c.fill();
+          c.save(); hexPath(c, 0, 0, R); c.clip();
+          c.fillStyle = `rgba(215,245,255,${.85 * fz})`; hexPath(c, 0, 0, R); c.fill();
+          c.fillStyle = p.color; c.globalAlpha = 1 - fz; hexPath(c, 0, 0, R * (1 - fz)); c.fill(); c.globalAlpha = 1;
+          for (let i = 0; i < 6; i++) { const a = i * TAU / 6 + p.rot, [x0, y0] = [Math.cos(a) * R, Math.sin(a) * R]; c.fillStyle = i % 2 ? `rgba(255,255,255,${.35 * fz})` : `rgba(120,190,230,${.3 * fz})`; c.beginPath(); c.moveTo(0, 0); c.lineTo(x0, y0); c.lineTo(Math.cos(a + TAU / 6) * R, Math.sin(a + TAU / 6) * R); c.closePath(); c.fill(); }
+          c.strokeStyle = `rgba(255,255,255,${.9 * fz})`; c.lineWidth = 1;
+          c.beginPath(); for (let i = 0; i < 3; i++) { const a = i * Math.PI / 3 + p.rot; c.moveTo(-Math.cos(a) * R * fz, -Math.sin(a) * R * fz); c.lineTo(Math.cos(a) * R * fz, Math.sin(a) * R * fz); } c.stroke();
+          const sw = ((k * 1.6) % 1) * R * 3 - R * 1.5; c.fillStyle = 'rgba(255,255,255,.45)'; c.rotate(.6); c.fillRect(sw, -R, R * .25, R * 2);
+          c.restore();
+          hexPath(c, 0, 0, R); c.lineWidth = 1.6; c.strokeStyle = `rgba(230,250,255,${.4 + .6 * fz})`; c.stroke();
+          if (k > .8) { const q = (k - .8) / .2; c.strokeStyle = `rgba(255,255,255,${q})`; c.lineWidth = 1.2; c.beginPath(); c.moveTo(-R * .7, -R * .2); c.lineTo(-R * .1, R * .1); c.lineTo(R * .3, -R * .5); c.moveTo(-R * .1, R * .1); c.lineTo(R * .2, R * .7); c.stroke(); }
+          c.restore(); break;
+        }
+        case 'glitch': {
+          // Сбой меняется ступеньками 20 раз в секунду, а не каждый кадр: рвано, но не мельтешит.
+          const st = Math.floor(p.t * 20), h = n => { const x = Math.sin((st * 13.1 + n * 7.7 + p.seed) * 91.7) * 43758.5; return x - Math.floor(x); };
+          const R = p.r, alive = k < .75 || h(9) > (k - .75) * 4;
+          if (!alive) break;
+          c.globalAlpha = 1;
+          const bands = 6, bh = R * 2 / bands;
+          for (let b = 0; b < bands; b++) {
+            if (k > .35 && h(b + 20) < (k - .35) * 1.3) continue;
+            const off = (h(b) - .5) * R * (.4 + k * 1.6), y = -R + b * bh;
+            // Полоса самой соты: сдвинута вбок и раздвоена по цветам.
+            c.save(); c.beginPath(); c.rect(p.x - R * 3, p.y + y, R * 6, bh - .4); c.clip();
+            [['255,40,120', -2.4], ['40,230,255', 2.4]].forEach(([col, dx]) => { c.fillStyle = `rgba(${col},.6)`; hexPath(c, p.x + off + dx, p.y, R); c.fill(); });
+            c.fillStyle = p.color; hexPath(c, p.x + off, p.y, R); c.fill();
+            c.fillStyle = 'rgba(255,255,255,.22)'; c.fillRect(p.x - R + off, p.y - R, R * 2, R * .6);
+            c.restore();
+          }
+          if (h(40) > .55) { c.fillStyle = 'rgba(255,255,255,.8)'; c.fillRect(p.x - R * 1.4 + h(41) * R, p.y + (h(42) - .5) * R * 2, R * (1 + h(43) * 1.5), 1.5); }
+          for (let i = 0; i < 3; i++) if (h(50 + i) > .5) { c.fillStyle = i % 2 ? '#FFFFFF' : p.color; const s = 3 + h(60 + i) * 3; c.fillRect(Math.round((p.x + (h(70 + i) - .5) * R * 3) / 3) * 3, Math.round((p.y + (h(80 + i) - .5) * R * 3) / 3) * 3, s, s); }
+          break;
+        }
+        case 'scan': {
+          // Полоса помех через всё поле при очистке.
+          const st = Math.floor(p.t * 20), h = n => { const x = Math.sin((st * 17.3 + n * 5.1 + p.seed) * 57.3) * 43758.5; return x - Math.floor(x); };
+          c.globalAlpha = (1 - k) * .8;
+          for (let i = 0; i < 4; i++) {
+            if (h(i) < .45) continue;
+            const y = p.y + (h(i + 10) - .5) * 260, hh = 2 + h(i + 20) * 7;
+            c.fillStyle = 'rgba(255,40,120,.35)'; c.fillRect(-4 + (h(i + 30) - .5) * 20, y - 1.5, 370, hh);
+            c.fillStyle = 'rgba(40,230,255,.35)'; c.fillRect(4 + (h(i + 30) - .5) * 20, y + 1.5, 370, hh);
+            c.fillStyle = 'rgba(255,255,255,.25)'; c.fillRect(0, y, 360, 1);
+          }
+          break;
         }
         case 'soap': {
           const r = p.r * (1 + .06 * Math.sin(p.t * 9));
@@ -636,6 +719,29 @@
       },
       clear(api, cx, cy, info) { if (!info.silent) HB.sfx.blackhole(); api.push({ k: 'hole', x: cx, y: cy, vx: 0, vy: 0, t: 0, life: 1.3, color: '#000', r: 30 }); }
     }
+  };
+
+  bursts.bubbles = {
+    hideTile: true,
+    cell(api, x, y, color) {
+      const n = parseInt(color.slice(1), 16), tint = `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},.22)`;
+      api.push({ k: 'bub2', x, y, vx: 0, vy: rnd(-40, -10), g: 0, t: 0, life: rnd(.9, 1.6), color, tint, r: rnd(13, 18), ph: rnd(0, TAU), snd: Math.random() < .35 });
+      for (let i = 0; i < 2; i++) api.push({ k: 'bub2', x: x + rnd(-8, 8), y: y + rnd(-8, 8), vx: 0, vy: rnd(-70, -30), g: 0, t: -rnd(0, .15), life: rnd(.6, 1.1), color, tint, r: rnd(4, 7), ph: rnd(0, TAU) });
+    },
+    clear(api, cx, cy, info) { if (!info.silent) HB.sfx.bubbles(); }
+  };
+  bursts.crystal = {
+    hideTile: true,
+    cell(api, x, y, color, info) {
+      const d = info && info.cx != null ? Math.hypot(x - info.cx, y - info.cy) : 0;
+      api.push({ k: 'crys', x, y, vx: 0, vy: 0, g: 0, t: -Math.min(.25, d / 900), life: .62, color, r: 19, rot: rnd(0, TAU) });
+    },
+    clear(api, cx, cy, info) { if (!info.silent) HB.sfx.crystal(); api.push({ k: 'flash', x: cx, y: cy, vx: 0, vy: 0, t: -.55, life: .35, color: '#E6F8FF', r: 90, soft: true }); }
+  };
+  bursts.glitch = {
+    hideTile: true,
+    cell(api, x, y, color) { api.push({ k: 'glitch', x, y, vx: 0, vy: 0, g: 0, t: 0, life: rnd(.55, .8), color, r: 19, seed: rnd(0, 1000) }); },
+    clear(api, cx, cy, info) { if (!info.silent) HB.sfx.glitch(); api.push({ k: 'scan', x: 0, y: cy, vx: 0, vy: 0, g: 0, t: 0, life: .5, color: '#FFFFFF', r: 1, seed: rnd(0, 1000) }); }
   };
 
   HB.fx = { update, draw, trails, bursts, SOUNDS, TRAILS, BURSTS, RAINBOW };
