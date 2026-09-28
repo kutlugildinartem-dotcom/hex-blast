@@ -127,6 +127,15 @@
     const filled = l => l.filter(c => c.ci >= 0 || (extra && extra.has(c))).length;
     return lines.filter(l => l.includes(cell)).reduce((a, b) => filled(b) > filled(a) ? b : a);
   }
+  /** Снежинка вокруг соты: [клетка, расстояние] для кольца и шести лучей длиной 3. */
+  function snowflakeOf(cell) {
+    const out = ringOf(cell).map(c => [c, 1]);
+    for (let d = 0; d < 6; d++) {
+      let q = cell.q, r = cell.r;
+      for (let s = 1; s <= 3; s++) { q += DIRC[d][0]; r += DIRC[d][1]; const c = map.get(key(q, r)); if (!c) break; if (s > 1) out.push([c, s]); }
+    }
+    return out;
+  }
   const ringOf = cell => DIRS.map(([dq, dr]) => map.get(key(cell.q + dq, cell.r + dr))).filter(Boolean);
   function groupOf(start) {
     const seen = new Set(start), st = [...start];
@@ -164,7 +173,7 @@
     };
   }
   function restore(s) {
-    cells.forEach((c, i) => { c.ci = s.cells[i][0]; c.bomb = !!s.cells[i][1]; c.fire = !!s.cells[i][3]; c.ice = !!s.cells[i][4]; c.frozen = !!s.cells[i][5]; c.frzT = -9; c.sun = !!s.cells[i][6]; c.sunStage = s.cells[i][7] || 0; c.sunGrowT = -9; c.dPet = s.cells[i][8] || 0; c.daisy = c.dPet > 0; c.dT = s.cells[i][9] || 30; c.dAsc = false; c.v = s.cells[i][2] || (i * 7) % 10; c.born = time; c.pt = 9; c.fx = null; c.gt = -1; });
+    cells.forEach((c, i) => { c.ci = s.cells[i][0]; c.bomb = !!s.cells[i][1]; c.fire = !!s.cells[i][3]; c.ice = !!s.cells[i][4]; c.frozen = !!s.cells[i][5]; c.frzBy = -1; c.frzT = -9; c.sun = !!s.cells[i][6]; c.sunStage = s.cells[i][7] || 0; c.sunGrowT = -9; c.dPet = s.cells[i][8] || 0; c.daisy = c.dPet > 0; c.dT = s.cells[i][9] || 30; c.dAsc = false; c.v = s.cells[i][2] || (i * 7) % 10; c.born = time; c.pt = 9; c.fx = null; c.gt = -1; });
     tray = s.tray.map((p, i) => p ? makePiece(i, i * .06, p.shape, p.ci, p.bomb, p.vs, p.bolt == null ? -1 : p.bolt, p.fire == null ? -1 : p.fire, p.ice == null ? -1 : p.ice, p.sun == null ? -1 : p.sun, p.daisy == null ? -1 : p.daisy) : null);
     hold = s.hold ? makePiece(3, .1, s.hold.shape, s.hold.ci, s.hold.bomb, s.hold.vs, s.hold.bolt == null ? -1 : s.hold.bolt, s.hold.fire == null ? -1 : s.hold.fire, s.hold.ice == null ? -1 : s.hold.ice, s.hold.sun == null ? -1 : s.hold.sun, s.hold.daisy == null ? -1 : s.hold.daisy) : null;
     score = s.score; combo = s.combo; miss = s.miss; stat = Object.assign({ lines: 0, maxCombo: 0, clears: 0 }, s.stat);
@@ -342,8 +351,10 @@
     HB.sfx.place(placed.length, (ox - 180) / 180); HB.haptic('place');
     if (pc.ice >= 0) {
       const ic = placed[pc.ice];
-      ringOf(ic).filter(c => c.ci >= 0 && !c.frozen).forEach((c, i) => {
-        c.frozen = true; c.frzT = time + .05 + i * .06; c.frzAng = Math.atan2(ic.y - c.y, ic.x - c.x);
+      // Иней расходится снежинкой: кольцо вокруг и шесть лучей на три соты, от центра к краям.
+      snowflakeOf(ic).forEach(([c, d]) => {
+        if (c.ci < 0 || c.frozen) return;
+        c.frozen = true; c.frzBy = ic.idx; c.frzT = time + .05 + (d - 1) * .22 + Math.random() * .05; c.frzAng = Math.atan2(ic.y - c.y, ic.x - c.x);
       });
       HB.sfx.freeze(); HB.haptic('freeze');
       for (let i = 0; i < 14; i++) parts.push({ k: 'glow', soft: true, x: ic.x + rnd(-18, 18), y: ic.y + rnd(-18, 18), vx: rnd(-20, 20), vy: rnd(-10, 25), g: 0, t: 0, life: rnd(.8, 1.3), color: 'rgba(200,240,255,.9)', r: rnd(1, 2) });
@@ -479,6 +490,8 @@
           const zap = zapped.has(b), fromBomb = blastFrom.get(b), hot = burnt.has(b) || sunburnt.has(b), gl = iceFrom.has(b);
           const mode = zap ? 'storm' : hot ? 'steam' : gl ? 'glacier' : fromBomb ? 'fan' : 'burst';
           const chill = c => { iced.add(c); if (c.ice && c !== b && !iceFrom.has(c)) iceFrom.set(c, b); };
+          // Ядро разбилось: всё, что оно заморозило, раскалывается вслед за ним.
+          cells.forEach(c => { if (c !== b && c.ci >= 0 && c.frozen && c.frzBy === b.idx) { chill(c); frostAt.set(c, at); addCell(c, at + .3 + cdist(b, c) * .12); } });
           if (!iceMode || mode !== 'burst') iceMode = mode;
           const bp = 80 * mult * (mode === 'burst' ? 1 : 2);
           bombPts += bp;
@@ -505,16 +518,8 @@
             // Лёд разбудил лёд: иней расходится на два кольца.
             cells.forEach(c => { if (c !== b && c.ci >= 0 && cdist(b, c) <= 2) { chill(c); frostAt.set(c, at + cdist(b, c) * .16); addCell(c, at + .6 + cdist(b, c) * .06); } });
           } else {
-            // Снежинка: кольцо вокруг и шесть лучей на три соты.
-            ringOf(b).forEach(c => { if (c.ci >= 0) { chill(c); frostAt.set(c, at); addCell(c, at + .38); } });
-            for (let d = 0; d < 6; d++) {
-              let q = b.q, r = b.r;
-              for (let s = 1; s <= 3; s++) {
-                q += DIRC[d][0]; r += DIRC[d][1];
-                const c = map.get(key(q, r)); if (!c) break;
-                if (s > 1 && c.ci >= 0) { chill(c); frostAt.set(c, at + s * .09); addCell(c, at + .4 + s * .11); }
-              }
-            }
+            // Снежинка вокруг ядра раскалывается от центра к краям.
+            snowflakeOf(b).forEach(([c, d]) => { if (c.ci >= 0) { chill(c); frostAt.set(c, at + (d - 1) * .08); addCell(c, at + .3 + d * .12); } });
           }
           booms.push({ x: b.x, y: b.y, t: -at, fired: false, ice: true, mode, dir, pts: bp });
           if (mode === 'storm') booms.push({ x: b.x, y: b.y, t: -(at + 1.15), fired: false, ice: true, mode: 'stormhit', pts: 0 });
@@ -547,14 +552,29 @@
         }
       }
       if (suns >= 2) {
-        // Два солнца в одной цепочке: с неба бьют частые лучи и выжигают всё поле.
+        // Два солнца: с неба бьют пять лучей, каждый проходит поле насквозь поперёк и прожигает всё на пути.
         sunMode = 'sky';
-        const t0 = Math.max(...[...done].filter(c => c.sun).map(c => delay.get(c))) + .55;
-        const top = Math.min(...cells.map(c => c.y));
+        const t0 = Math.max(...[...done].filter(c => c.sun).map(c => delay.get(c))) + .6;
+        const ys = cells.map(c => c.y), top = Math.min(...ys), bot = Math.max(...ys), nS = 5, band = (bot - top) / (nS - 1);
+        const sw = [];
+        for (let i = 0; i < nS; i++) {
+          const y = top + i * band, dir = i % 2 ? -1 : 1;
+          sw.push({ ox: 180 + rnd(-60, 60), oy: -40, x1: dir > 0 ? -20 : 380, y1: y + rnd(-22, 22), x2: dir > 0 ? 380 : -20, y2: y + rnd(-22, 22), st: t0 + i * .36, dur: .7 });
+        }
         let n = 0;
-        cells.forEach(c => { if (c.ci < 0 || u.has(c)) return; u.add(c); sunburnt.add(c); delay.set(c, t0 + (c.y - top) / 480 + Math.random() * .2); n++; });
+        cells.forEach(c => {
+          if (c.ci < 0 || u.has(c)) return;
+          let best = null;
+          sw.forEach(s => {
+            const dx = s.x2 - s.x1, dy = s.y2 - s.y1, p = clamp(((c.x - s.x1) * dx + (c.y - s.y1) * dy) / (dx * dx + dy * dy));
+            const d = Math.hypot(c.x - (s.x1 + dx * p), c.y - (s.y1 + dy * p));
+            if (!best || d < best.d) best = { d, s, p };
+          });
+          u.add(c); sunburnt.add(c); delay.set(c, best.s.st + eio(best.p) * best.s.dur + .03); n++;
+        });
         bombPts += n * 20;
-        skyfires.push({ t: -t0, life: 1.9 });
+        sw.forEach(s => sunBeams.push(Object.assign({ kind: 'sweep', t: -s.st, life: s.dur + .45, w: 8 }, s)));
+        skyfires.push({ t: -t0, life: nS * .36 + .8 });
       }
       [...u].filter(c => c.daisy).forEach(c => { u.delete(c); tearPetals(c, Math.max(1, full.filter(l => l.includes(c)).length)); });
       const delays = [], xs = [];
@@ -611,7 +631,7 @@
           while (charge >= 6) { charge -= 6; earnSpecial(); }
         }
       }
-    } else if (++miss >= 3) combo = 0;
+    } else if (++miss >= 3 && bloomT <= 0) combo = 0;
     const remain = placed.filter(c => c.ci >= 0);
     if (remain.length) {
       const cx = remain.reduce((a, c) => a + c.x, 0) / remain.length, cy = remain.reduce((a, c) => a + c.y, 0) / remain.length;
@@ -1011,12 +1031,12 @@
     { id: 'forest', g: ['fire'], need: ['fire'], name: 'Лесной пожар', desc: 'Огонь добежал до другого костра, и тот тоже вспыхивает.', seed: 0, set: s => { s.row(); s.put(-2, 0, 'fire'); [[-2, -1], [-1, -1], [-3, 1], [-2, 1]].forEach(([q, r]) => s.put(q, r, 'fire')); s.fill(12); } },
     { id: 'steam', g: ['fire', 'ice'], need: ['fire', 'ice'], name: 'Паровой взрыв', desc: 'Лёд и огонь встретились: облако пара обжигает всё вокруг.', set: s => { s.row(); s.put(-2, 0, 'ice'); s.put(-2, -1, 'fire'); s.fill(14); } },
     { id: 'flare', g: ['fire', 'sun'], need: ['fire', 'sun'], name: 'Протуберанец', desc: 'Солнце и огонь подпитали друг друга: огонь бежит двумя длинными языками.', set: s => { s.row(); s.put(-3, 0, 'sun', 1); s.put(-3, -1, 'fire'); s.fill(18); } },
-    { id: 'freeze', g: ['ice'], need: ['ice'], name: 'Заморозка', desc: 'Поставленный лёд замораживает соседей, они потом звонко лопаются.', piece: 'ice', target: [0, -1], set: s => { s.ring(0, -1); s.fill(10); } },
-    { id: 'iceburst', g: ['ice'], need: ['ice'], name: 'Ледяной взрыв', desc: 'Лёд сгорел в линии и раскрывается снежинкой: кольцо вокруг и шесть лучей на три соты.', set: s => { s.row(); s.put(-2, 0, 'ice'); s.ring(-2, 0); s.fill(8); } },
+    { id: 'freeze', g: ['ice'], need: ['ice'], name: 'Заморозка', desc: 'Поставленный лёд расходится инеем снежинкой: кольцо и шесть лучей на три соты. Разобьёшь ядро — лопнет всё.', piece: 'ice', target: [0, -1], set: s => { s.ring(0, -1); s.fill(10); } },
+    { id: 'iceburst', g: ['ice'], need: ['ice'], name: 'Ледяной взрыв', desc: 'Ледяное ядро разбилось: вся снежинка инея вокруг него раскалывается вслед.', set: s => { s.row(); s.put(-2, 0, 'ice'); s.ring(-2, 0); s.fill(8); } },
     { id: 'glacier', g: ['ice'], need: ['ice'], name: 'Ледниковый период', desc: 'Лёд разбудил лёд: иней расходится на два кольца.', set: s => { s.row(); s.put(-2, 0, 'ice'); s.put(-2, -1, 'ice'); s.fill(18); } },
     { id: 'prism', g: ['ice', 'sun'], need: ['ice', 'sun'], name: 'Призма', desc: 'Лёд в зоне солнца раскладывает луч на шесть радужных лучей.', set: s => { s.row(); s.put(-3, 0, 'sun', 2); s.put(-3, -1, 'ice'); s.fill(22); } },
     { id: 'sun', g: ['sun'], need: ['sun'], len: 4.6, name: 'Солнечные зайчики', desc: 'Разбил солнце сам: луч бьёт по его зоне, а солнце рассыпается зайчиками, которые прыгают по полю и выжигают соты.', set: s => { s.row(); s.put(-3, 0, 'sun', 2); s.fill(18); } },
-    { id: 'twosun', g: ['sun'], need: ['sun'], len: 5, name: 'Небесный огонь', desc: 'Два солнца в одной цепочке: с неба быстро бьют лучи и выжигают всё поле.', set: s => { s.row(); s.put(-3, 0, 'sun', 2); s.put(3, 0, 'sun', 1); s.fill(26); } },
+    { id: 'twosun', g: ['sun'], need: ['sun'], len: 5, name: 'Небесный огонь', desc: 'Два солнца в одной цепочке: с неба бьют пять лучей и проходят поле насквозь, прожигая всё на пути.', set: s => { s.row(); s.put(-3, 0, 'sun', 2); s.put(3, 0, 'sun', 1); s.fill(26); } },
     { id: 'sunauto', g: ['sun'], need: ['sun'], name: 'Луч бьёт сам', desc: 'Солнце на пределе: на следующий ход луч ударит без твоей помощи.', set: s => { s.put(-2, -1, 'sun', 3); s.fill(22); } },
     { id: 'binary', g: ['sun'], need: ['sun'], name: 'Двойная звезда', desc: 'Луч задел другое солнце: между ними вспыхивает мост света, а с неба обрушивается небесный огонь.', set: s => { s.row(); s.put(-3, 0, 'sun', 2); s.put(-2, -2, 'sun', 1); s.fill(14); } },
     { id: 'daisy1', g: ['daisy'], need: ['daisy'], len: 4.6, name: 'Ромашка: 1-й лепесток', desc: 'Ряд сгорел, а ромашка осталась. Лепесток отрывается, и цветок дарит соту, которая закроет ряд.', set: s => { s.row(); s.put(2, 0, 'daisy', 5); [-3, -2, -1, 0, 1, 3, 4].forEach(q => s.put(q, -1, 'ci')); s.region((q, r) => r >= 2, 12); } },
@@ -1181,7 +1201,6 @@
     } else {
       HB.sfx.iceBurst(pan); HB.haptic('shatter');
       whiteFlash = Math.max(whiteFlash, .7); shake = Math.max(shake, 16); slowmo = Math.max(slowmo, .35);
-      snowflakes.push({ x: b.x, y: b.y, t: 0, life: 1.3, rot: rnd(-.2, .2) });
       rings.push({ x: b.x, y: b.y, t: -.3, color: ICEC, big: true });
       iceShards(b.x, b.y, '#BDEBFF', 3);
     }
@@ -1336,6 +1355,16 @@
     strikes = strikes.filter(s => s.t < (s.life || .6));
     for (const s of sunBeams) {
       s.t += dt;
+      if (s.kind === 'sweep' && s.t >= 0 && s.t <= s.dur) {
+        // Точка прожига: искры, угли и дымок там, где луч касается поля.
+        if (!s.snd) { s.snd = true; HB.sfx.sunSweep((s.x1 + s.x2) / 2 > 180 ? .4 : -.4); HB.haptic('fire'); }
+        const p = eio(s.t / s.dur), ex = lerp(s.x1, s.x2, p), ey = lerp(s.y1, s.y2, p);
+        if (ex > -5 && ex < 365) {
+          for (let i = 0; i < 2; i++) parts.push({ k: 'ember', soft: true, x: ex, y: ey, vx: rnd(-90, 90), vy: rnd(-160, -40), g: 120, t: 0, life: rnd(.4, .8), color: i ? '#FFE08A' : '#FFB347', r: rnd(1.2, 2.2) });
+          if (Math.random() < .35) parts.push({ k: 'smoke', x: ex, y: ey, vx: rnd(-15, 15), vy: rnd(-50, -25), g: -10, t: 0, life: rnd(.8, 1.3), color: 'rgba(60,40,30,.35)', r: rnd(6, 10) });
+          shake = Math.max(shake, 4);
+        }
+      }
       // Луч долетел до конца зоны: вспышка искр и кольцо в точке удара.
       if (s.kind === 'line' && !s.hit && !s.noHit && s.t >= .2) {
         s.hit = true;
@@ -1345,8 +1374,6 @@
       }
     }
     sunBeams = sunBeams.filter(s => s.t < s.life);
-    for (const f of snowflakes) f.t += dt;
-    snowflakes = snowflakes.filter(f => f.t < f.life);
     for (const h of hurricanes) {
       h.t += dt;
       if (h.t < 0) continue;
@@ -1360,14 +1387,8 @@
     for (const s of skyfires) {
       s.t += dt;
       if (s.t < 0) continue;
-      if (!s.started) { s.started = true; HB.sfx.skyfire(); HB.haptic('sun'); whiteFlash = Math.max(whiteFlash, 1.4); flashTint = '255,236,190'; slowmo = Math.max(slowmo, 1.2); }
-      // С неба, из-под камеры телефона, быстро мелькают лучи по всему полю.
-      const n = Math.round(dt * 70);
-      for (let i = 0; i < n; i++) {
-        const c0 = cells[rand(cells.length)];
-        sunBeams.push({ kind: 'line', x: 180 + rnd(-50, 50), y: -30, x2: c0.x + rnd(-6, 6), y2: c0.y + rnd(-6, 6), t: 0, life: rnd(.22, .38), w: rnd(3.5, 7), over: 14, col: pick(['255,236,170', '255,250,225', '255,200,120']), noHit: Math.random() < .8 });
-      }
-      shake = Math.max(shake, 10);
+      if (!s.started) { s.started = true; HB.sfx.skyfire(); HB.haptic('sun'); whiteFlash = Math.max(whiteFlash, .8); flashTint = '255,236,190'; slowmo = Math.max(slowmo, .5); }
+      shake = Math.max(shake, 5);
     }
     skyfires = skyfires.filter(s => s.t < s.life);
     for (const b of bunnies) {
@@ -1669,29 +1690,6 @@
     [.5, .9, 1.35].forEach((m, i) => { c.fillStyle = `rgba(${['255,200,120', '180,220,255', '255,160,200'][i]},${.14 * a})`; hexPath(c, x + vx * m, y + vy * m, 10 + i * 9); c.fill(); });
     c.restore();
   }
-  /** Снежинка из взрыва льда: шесть лучей с веточками вырастают и тают. */
-  function drawSnowflakes(c) {
-    for (const f of snowflakes) {
-      const k = f.t / f.life, grow = eo(clamp(f.t / .4)), a = 1 - clamp((k - .55) / .45), L = S * R3 * 3.2 * grow;
-      c.save(); c.translate(f.x, f.y); c.rotate(f.rot + f.t * .4); c.globalCompositeOperation = 'lighter'; c.lineCap = 'round';
-      const arm = (w, col) => {
-        c.strokeStyle = col; c.lineWidth = w; c.beginPath();
-        for (let i = 0; i < 6; i++) {
-          const an = i * TAU / 6, ca = Math.cos(an), sa = Math.sin(an);
-          c.moveTo(0, 0); c.lineTo(ca * L, sa * L);
-          [[.42, .3], [.7, .22]].forEach(([p, bl]) => {
-            const bx = ca * L * p, by = sa * L * p;
-            [-1, 1].forEach(sd => { const b2 = an + sd * Math.PI / 3; c.moveTo(bx, by); c.lineTo(bx + Math.cos(b2) * L * bl, by + Math.sin(b2) * L * bl); });
-          });
-        }
-        c.stroke();
-      };
-      arm(9, `rgba(120,200,255,${.25 * a})`); arm(4, `rgba(190,235,255,${.6 * a})`); arm(1.6, `rgba(255,255,255,${a})`);
-      const g = c.createRadialGradient(0, 0, 0, 0, 0, 22); g.addColorStop(0, `rgba(255,255,255,${a})`); g.addColorStop(1, 'rgba(200,240,255,0)');
-      c.fillStyle = g; c.beginPath(); c.arc(0, 0, 22, 0, TAU); c.fill();
-      c.restore();
-    }
-  }
   /** Ураган: полупрозрачные струи ветра по кругу вокруг поля. */
   function drawHurricanes(c) {
     for (const h of hurricanes) {
@@ -1722,6 +1720,24 @@
       c.restore();
     }
   }
+  /** Луч-прожиг: идёт с неба, его конец ведут поперёк поля, за ним остаётся тлеющий след. */
+  function drawSweep(c, s) {
+    const p = eio(clamp(s.t / s.dur)), a = Math.min(1, s.t / .08) * (1 - clamp((s.t - s.dur) / .45));
+    const ex = lerp(s.x1, s.x2, p), ey = lerp(s.y1, s.y2, p);
+    // Тлеющая полоса там, где луч уже прошёл.
+    c.save(); c.globalCompositeOperation = 'lighter'; c.lineCap = 'round';
+    const trail = c.createLinearGradient(s.x1, s.y1, ex, ey);
+    trail.addColorStop(0, 'rgba(255,120,40,0)'); trail.addColorStop(1, `rgba(255,150,60,${.45 * a})`);
+    c.strokeStyle = trail; c.lineWidth = 7; c.beginPath(); c.moveTo(s.x1, s.y1); c.lineTo(ex, ey); c.stroke();
+    c.strokeStyle = `rgba(255,230,160,${.35 * a})`; c.lineWidth = 2; c.stroke();
+    c.restore();
+    beam(c, s.ox, s.oy, ex, ey, s.w * (1 + .08 * Math.sin(s.t * 50)), a, '255,205,120', s.t);
+    // Раскалённая точка касания.
+    c.save(); c.globalCompositeOperation = 'lighter';
+    const g = c.createRadialGradient(ex, ey, 0, ex, ey, 30); g.addColorStop(0, `rgba(255,255,245,${a})`); g.addColorStop(.3, `rgba(255,200,100,${.7 * a})`); g.addColorStop(1, 'rgba(255,120,30,0)');
+    c.fillStyle = g; c.beginPath(); c.arc(ex, ey, 30, 0, TAU); c.fill();
+    c.restore();
+  }
   function drawSunBeams(c) {
     for (const s of sunBeams) {
       if (s.t < 0) continue;
@@ -1736,7 +1752,8 @@
         c.restore();
         beam(c, s.x, -60, s.x, s.y, s.w * (1 + .3 * (1 - k)), a, '255,215,130', s.t);
         lensFlare(c, s.x, s.y, a, s.w);
-      } else shotBeam(c, s, Math.min(1, s.t / .06) * (.92 + .08 * Math.sin(s.t * 60)));
+      } else if (s.kind === 'sweep') drawSweep(c, s);
+      else shotBeam(c, s, Math.min(1, s.t / .06) * (.92 + .08 * Math.sin(s.t * 60)));
     }
   }
   /** Морозный узор: полупрозрачная корка, ветвистые кристаллы и ледяная кромка. */
@@ -1919,7 +1936,6 @@
     drawStrikes(c);
     drawHurricanes(c);
     drawSunBeams(c);
-    drawSnowflakes(c);
     drawBunnies(c);
     for (const r of rings) {
       if (r.t < 0) continue;

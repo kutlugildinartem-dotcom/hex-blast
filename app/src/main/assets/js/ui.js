@@ -489,6 +489,29 @@
         c.fillStyle = g2; c.fillRect(x, cy - hh / 2, 18, hh);
         c.fillStyle = '#5A5A6A'; c.fillRect(x + 6, cy + hh / 2, 6, 20);
       }
+    } else if (id === 'rock') {
+      c.save(); c.translate(cx, cy); c.rotate(-.5);
+      const bg2 = c.createLinearGradient(-60, 0, 30, 0); bg2.addColorStop(0, '#D7263D'); bg2.addColorStop(1, '#8E1420');
+      c.fillStyle = bg2; c.beginPath(); c.moveTo(-70, -10); c.quadraticCurveTo(-72, -42, -40, -34); c.quadraticCurveTo(-18, -30, -12, -18); c.lineTo(-10, 18); c.quadraticCurveTo(-18, 34, -42, 36); c.quadraticCurveTo(-74, 36, -70, 6); c.closePath(); c.fill();
+      c.fillStyle = '#2B1A10'; c.fillRect(-12, -5, 88, 10); c.fillStyle = '#1A1A1A'; c.fillRect(74, -9, 18, 18);
+      c.strokeStyle = 'rgba(255,255,255,.7)'; c.lineWidth = 1; for (let i = -2; i <= 2; i++) { c.beginPath(); c.moveTo(-50, i * 2.2); c.lineTo(90, i * 2.2); c.stroke(); }
+      c.fillStyle = '#EEE'; c.fillRect(-46, -12, 6, 24); c.fillRect(-34, -12, 6, 24);
+      c.restore();
+      c.fillStyle = '#FFE45C'; c.beginPath(); c.moveTo(cx + 52, cy - 50); c.lineTo(cx + 36, cy - 12); c.lineTo(cx + 50, cy - 12); c.lineTo(cx + 38, cy + 22); c.lineTo(cx + 66, cy - 22); c.lineTo(cx + 52, cy - 22); c.closePath(); c.fill();
+    } else if (id === 'uke') {
+      const bg2 = c.createRadialGradient(cx - 30, cy + 10, 4, cx - 30, cy + 10, 50); bg2.addColorStop(0, '#F2C27B'); bg2.addColorStop(1, '#B9772E');
+      c.fillStyle = bg2; c.beginPath(); c.ellipse(cx - 40, cy + 14, 36, 30, 0, 0, Math.PI * 2); c.ellipse(cx - 6, cy + 4, 26, 22, 0, 0, Math.PI * 2); c.fill();
+      c.fillStyle = '#4A2A12'; c.beginPath(); c.arc(cx - 16, cy + 6, 9, 0, Math.PI * 2); c.fill();
+      c.fillStyle = '#6B3F1F'; c.save(); c.translate(cx, cy); c.rotate(-.3); c.fillRect(0, -6, 78, 12); c.fillStyle = '#3A2410'; c.fillRect(76, -9, 20, 18); c.restore();
+      c.strokeStyle = 'rgba(255,255,255,.75)'; c.lineWidth = 1; for (let i = -1.5; i <= 1.5; i++) { c.beginPath(); c.moveTo(cx - 50, cy + 12 + i * 2.5); c.lineTo(cx + 90, cy - 30 + i * 2.5); c.stroke(); }
+      ['#FF6B9A', '#FFD23F', '#6EE7B7'].forEach((col, i) => { c.fillStyle = col; const x = cx + 50 + i * 16, y = cy + 30 - i * 10; for (let k = 0; k < 5; k++) { c.beginPath(); c.ellipse(x + Math.cos(k * 1.256) * 5, y + Math.sin(k * 1.256) * 5, 4, 2.4, k * 1.256, 0, Math.PI * 2); c.fill(); } c.fillStyle = '#FFF'; c.beginPath(); c.arc(x, y, 2, 0, Math.PI * 2); c.fill(); });
+    } else if (id === 'felt' || id === 'moss' || id === 'dusk') {
+      const kw = 20, n = 9, x0 = cx - n * kw / 2, y0 = cy - 30, tint = { felt: '#FFE9C7', moss: '#D9F5DE', dusk: '#E3D6FF' }[id];
+      c.fillStyle = 'rgba(0,0,0,.25)'; c.fillRect(x0 - 6, y0 - 6, n * kw + 10, 76);
+      for (let i = 0; i < n; i++) { c.fillStyle = tint; c.fillRect(x0 + i * kw, y0, kw - 2, 64); }
+      [0, 1, 3, 4, 5, 7].forEach(i => { c.fillStyle = '#2A2340'; c.fillRect(x0 + i * kw + kw * .62, y0, kw * .7, 38); });
+      c.fillStyle = id === 'moss' ? '#8FE3A0' : id === 'dusk' ? '#B79BFF' : '#FFD27A';
+      c.beginPath(); c.arc(cx + 70, cy - 46, 12, 0, Math.PI * 2); c.fill();
     } else if (id === 'rhodes') {
       c.fillStyle = '#1B1B1B'; c.beginPath(); c.arc(cx, cy, 55, 0, Math.PI * 2); c.fill();
       c.strokeStyle = 'rgba(255,255,255,.08)'; c.lineWidth = 1; for (let r = 20; r < 54; r += 4) { c.beginPath(); c.arc(cx, cy, r, 0, Math.PI * 2); c.stroke(); }
