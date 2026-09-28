@@ -67,6 +67,17 @@
     for (const p of parts) {
       p.t += dt;
       if (p.t < 0) { out.push(p); continue; }
+      if (p.k === 'orbit') {
+        // Кружит вокруг центра поля, затем вылетает наружу.
+        const k = p.t / p.life;
+        p.ang += p.w * dt * (1 + k * .8);
+        p.rad += (p.rad1 - p.rad) * Math.min(1, dt * 3.5);
+        if (k > .72) p.rad += 420 * dt;
+        p.x = p.cx + Math.cos(p.ang) * p.rad; p.y = p.cy + Math.sin(p.ang) * p.rad * .92;
+        if (p.tile) p.rot += dt * 7;
+        if (p.t < p.life) out.push(p);
+        continue;
+      }
       if (p.k === 'vortex') {
         const sp = 1 + p.t * 2.5;
         p.ang += p.w * dt * sp;
@@ -405,6 +416,14 @@
             c.fillStyle = 'rgba(40,230,255,.35)'; c.fillRect(4 + (h(i + 30) - .5) * 20, y + 1.5, 370, hh);
             c.fillStyle = 'rgba(255,255,255,.25)'; c.fillRect(0, y, 360, 1);
           }
+          break;
+        }
+        case 'orbit': {
+          if (p.tile) {
+            c.globalAlpha = 1 - clamp((k - .6) / .4);
+            hexPath(c, p.x, p.y, p.r * (1 - k * .3), p.rot); c.fillStyle = p.color; c.fill();
+            c.lineWidth = 1.2; c.strokeStyle = 'rgba(255,255,255,.55)'; c.stroke();
+          } else { c.fillStyle = p.color; c.beginPath(); c.arc(p.x, p.y, p.r, 0, TAU); c.fill(); }
           break;
         }
         case 'soap': {

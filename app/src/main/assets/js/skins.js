@@ -101,11 +101,13 @@
     const k = PX(), Rk = Math.max(4, Math.round(R / 2) * 2), size = Math.ceil(Rk * 2.8 * k);
     const ck = key + '|' + size;
     let cv = cache.get(ck);
+    // Android под нехваткой памяти может стереть содержимое холстов: такой спрайт рисуем заново.
+    if (cv && cv._g && cv._g.isContextLost && cv._g.isContextLost()) { cache.delete(ck); cv = null; }
     if (!cv) {
-      if (cache.size > 900) cache.clear();
+      if (cache.size > 400) cache.clear();
       cv = document.createElement('canvas');
       cv.width = cv.height = size;
-      const g = cv.getContext('2d');
+      const g = cv.getContext('2d'); cv._g = g;
       g.translate(size / 2, size / 2); g.scale(k, k);
       draw(g, Rk);
       cv._r = Rk;

@@ -45,10 +45,12 @@
   let tray = [null, null, null], hold = null, drag = null, ghost = null, preview = null, boltPreview = null;
   let score = 0, shown = 0, bump = 0, best = HB.best(), bestAtStart = 0, recordShown = false, isRecord = false;
   let combo = 0, miss = 0, stat = { lines: 0, maxCombo: 0, clears: 0 };
-  let paidChances = 0;
+  let paidChances = 0, bloomT = 0;
+  const BLOOM_T = 30;
   let pending = [], charge = 0, undoCharges = 0, snap = null, lastAward = 0, holdHint = false;
   let mode = 'idle', inputOn = false, endT = 0, time = 0;
   let slowmo = 0, freeze = 0, punch = 0, shake = 0, bgFlash = 0, bgFlashColor = '#A78BFA', whiteFlash = 0, idleT = 0, trailT = 0;
+  let snowflakes = [], hurricanes = [], bunnies = [], skyfires = [];
   let parts = [], rings = [], floats = [], banners = [], splats = [], booms = [], strikes = [], hudFx = [], flames = [], crackT = 1, sunBeams = [], sunsOn = [], ripple = null, hudAcc = 0, flashTint = '255,245,230';
   const bgHex = Array.from({ length: 12 }, () => ({ x: rnd(0, W), y: rnd(0, 900), r: rnd(18, 60), s: rnd(4, 12), a: rnd(0, TAU), va: rnd(-.15, .15) }));
   const stars = Array.from({ length: 70 }, () => ({ x: rnd(0, W), y: rnd(0, 900), s: rnd(.8, 2), p: rnd(0, TAU) }));
@@ -86,7 +88,14 @@
   }
   /** Какая особая сота придёт следующей: зависит от выбора в настройках. */
   const specials = () => (HB.settings.specials && HB.settings.specials.length ? HB.settings.specials : ['bomb']);
-  function nextSpecial() { const sp = specials(); return sp[rand(sp.length)]; }
+  // Бомба, молния, костёр и лёд приходят часто, солнце редко, ромашка совсем редко (примерно одна из двадцати).
+  const SPECIAL_W = { bomb: 1, bolt: 1, fire: 1, ice: 1, sun: .6, daisy: .25 };
+  function nextSpecial() {
+    const sp = specials(), sum = sp.reduce((a, k) => a + (SPECIAL_W[k] || 1), 0);
+    let r = Math.random() * sum;
+    for (const k of sp) { r -= SPECIAL_W[k] || 1; if (r <= 0) return k; }
+    return sp[sp.length - 1];
+  }
   function earnSpecial() {
     const t = nextSpecial();
     pending.push(t);
@@ -165,7 +174,7 @@
   }
   function save() {
     if (mode !== 'play') { if (mode !== 'idle') HB.store.del('hb.save2'); return; }
-    HB.store.set('hb.save2', { v: 2, s: snapshot(), undoCharges, snap, bestAtStart, paidChances });
+    HB.store.set('hb.save2', { v: 2, s: snapshot(), undoCharges, snap, bestAtStart, paidChances, bloomT: Math.round(bloomT) });
   }
   function load() {
     let d = HB.store.get('hb.save2', null);
@@ -187,7 +196,7 @@
     if (tray.every(t => !t)) refill();
     updateFits();
     if (stuck()) { HB.store.del('hb.save2'); cells.forEach(c => { c.ci = -1; c.bomb = false; }); tray = [null, null, null]; hold = null; return false; }
-    shown = score; paidChances = d.paidChances || 0; undoCharges = d.undoCharges || 0; snap = d.snap || null; bestAtStart = d.bestAtStart || 0;
+    shown = score; paidChances = d.paidChances || 0; bloomT = d.bloomT || 0; undoCharges = d.undoCharges || 0; snap = d.snap || null; bestAtStart = d.bestAtStart || 0;
     return true;
   }
 
@@ -385,6 +394,7 @@
       const power = HB.settings.bombPower === 2 ? 2 : 1;
       const queue = [...u].filter(c => c.bomb || c.fire || c.ice || c.sun), done = new Set(), sunburnt = new Set(), sunFrom = new Map(), prismCol = new Map(), burnt = new Set(), blasted = new Set(), blastFrom = new Map(), frostAt = new Map(), iced = new Set(), iceFrom = new Map(), types = new Set();
       if (strike) types.add('bolt');
+      const whirled = new Set();
       let nBombs = 0, cryo = false, thermo = false, fireSteam = false, fireSun = false;
       let ices = 0, iceMode = '', suns = 0, sunMode = '';
       let fires = 0, napalm = false, storm = false, fireBlast = false;
@@ -424,18 +434,34 @@
           if (zap) R = Math.max(R, 3);
           const zone = cells.filter(c => c !== b && c.ci >= 0 && cdist(b, c) <= R);
           const prism = zone.some(c => c.ice || c.frozen);
-          const mode = zap ? 'storm' : prism ? 'prism' : boom ? 'nuke' : hot ? 'flare' : from ? 'binary' : 'beam';
+          const mode = zap ? 'hurricane' : prism ? 'prism' : boom ? 'nuke' : hot ? 'flare' : from ? 'binary' : autoSuns.includes(b) ? 'beam' : 'bunny';
           if (!sunMode || mode !== 'beam') sunMode = mode;
           const bp = 100 * Math.max(1, b.sunStage) * mult * (boom ? 3 : mode === 'beam' ? 1 : 2);
           bombPts += bp;
           const t0 = at + .45, extra = { lines: [], rays: [] };
           delay.set(b, Math.max(delay.get(b), t0));
           zone.forEach(c => { sunburnt.add(c); if (c.sun && !sunFrom.has(c)) sunFrom.set(c, b); addCell(c, t0 + cdist(b, c) * .22); });
-          if (zap) lines.filter(l => l.includes(b)).forEach(l => {
-            const srt = l.slice().sort((p, q) => p.x - q.x || p.y - q.y);
-            extra.lines.push([srt[0].x, srt[0].y, srt[srt.length - 1].x, srt[srt.length - 1].y]);
-            l.forEach(c => { if (c !== b && c.ci >= 0) { sunburnt.add(c); addCell(c, t0 + .3 + Math.hypot(c.x - b.x, c.y - b.y) / 900); } });
-          });
+          if (zap) {
+            // Ураган: вихрь вокруг поля уносит по кругу 5–6 самых заполненных рядов.
+            const n = 5 + (Math.random() < .5 ? 1 : 0);
+            const pick = lines.slice().sort((l1, l2) => l2.filter(c => c.ci >= 0).length - l1.filter(c => c.ci >= 0).length + (Math.random() - .5) * .5).slice(0, n);
+            pick.forEach((l, i) => l.forEach(c => { if (c !== b && c.ci >= 0) { whirled.add(c); addCell(c, t0 + .6 + i * .22 + Math.random() * .15); } }));
+            hurricanes.push({ t: -t0, life: 2.8 });
+          }
+          if (mode === 'bunny') {
+            // Солнце разбил сам игрок: оно рассыпается солнечными зайчиками, и каждый прыгает по полю, выжигая соты.
+            const nb = 3 + Math.max(0, b.sunStage);
+            for (let k2 = 0; k2 < nb; k2++) {
+              const pts = [[b.x, b.y]]; let cur = b;
+              for (let h = 0; h < 3; h++) {
+                const cand = cells.filter(c => c.ci >= 0 && !u.has(c) && c !== cur && cdist(c, cur) >= 1 && cdist(c, cur) <= 3);
+                if (!cand.length) break;
+                cur = cand[rand(cand.length)];
+                pts.push([cur.x, cur.y]); sunburnt.add(cur); addCell(cur, t0 + .45 + k2 * .12 + (h + 1) * .3);
+              }
+              if (pts.length > 1) bunnies.push({ pts, t: -(t0 + .45 + k2 * .12), hop: .3, h: 0 });
+            }
+          }
           if (prism) for (let d = 0; d < 6; d++) {
             let q = b.q, r = b.r, end = null;
             for (let s = 1; s <= R + 4; s++) {
@@ -479,7 +505,16 @@
             // Лёд разбудил лёд: иней расходится на два кольца.
             cells.forEach(c => { if (c !== b && c.ci >= 0 && cdist(b, c) <= 2) { chill(c); frostAt.set(c, at + cdist(b, c) * .16); addCell(c, at + .6 + cdist(b, c) * .06); } });
           } else {
+            // Снежинка: кольцо вокруг и шесть лучей на три соты.
             ringOf(b).forEach(c => { if (c.ci >= 0) { chill(c); frostAt.set(c, at); addCell(c, at + .38); } });
+            for (let d = 0; d < 6; d++) {
+              let q = b.q, r = b.r;
+              for (let s = 1; s <= 3; s++) {
+                q += DIRC[d][0]; r += DIRC[d][1];
+                const c = map.get(key(q, r)); if (!c) break;
+                if (s > 1 && c.ci >= 0) { chill(c); frostAt.set(c, at + s * .09); addCell(c, at + .4 + s * .11); }
+              }
+            }
           }
           booms.push({ x: b.x, y: b.y, t: -at, fired: false, ice: true, mode, dir, pts: bp });
           if (mode === 'storm') booms.push({ x: b.x, y: b.y, t: -(at + 1.15), fired: false, ice: true, mode: 'stormhit', pts: 0 });
@@ -511,12 +546,22 @@
           }
         }
       }
+      if (suns >= 2) {
+        // Два солнца в одной цепочке: с неба бьют частые лучи и выжигают всё поле.
+        sunMode = 'sky';
+        const t0 = Math.max(...[...done].filter(c => c.sun).map(c => delay.get(c))) + .55;
+        const top = Math.min(...cells.map(c => c.y));
+        let n = 0;
+        cells.forEach(c => { if (c.ci < 0 || u.has(c)) return; u.add(c); sunburnt.add(c); delay.set(c, t0 + (c.y - top) / 480 + Math.random() * .2); n++; });
+        bombPts += n * 20;
+        skyfires.push({ t: -t0, life: 1.9 });
+      }
       [...u].filter(c => c.daisy).forEach(c => { u.delete(c); tearPetals(c, Math.max(1, full.filter(l => l.includes(c)).length)); });
       const delays = [], xs = [];
       let frozenHit = 0;
       u.forEach(c => {
         if (c.frozen) frozenHit++;
-        c.fx = { ci: c.ci, v: c.v, bomb: c.bomb, fire: c.fire, ice: c.ice, sun: c.sun, sunStage: c.sunStage, sunburn: sunburnt.has(c), prism: prismCol.has(c) ? prismCol.get(c) : null, frozen: c.frozen, frost: frostAt.has(c) ? frostAt.get(c) : null, frzAng: c.frzAng, burning: burnt.has(c), charged: c.bomb && zapped.has(c), age: time - c.born, delay: delay.get(c), t: 0, burst: false, hole: { cx: ox, cy: oy } };
+        c.fx = { orbit: whirled.has(c), ci: c.ci, v: c.v, bomb: c.bomb, fire: c.fire, ice: c.ice, sun: c.sun, sunStage: c.sunStage, sunburn: sunburnt.has(c), prism: prismCol.has(c) ? prismCol.get(c) : null, frozen: c.frozen, frost: frostAt.has(c) ? frostAt.get(c) : null, frzAng: c.frzAng, burning: burnt.has(c), charged: c.bomb && zapped.has(c), age: time - c.born, delay: delay.get(c), t: 0, burst: false, hole: { cx: ox, cy: oy } };
         delays.push(c.fx.delay); xs.push((c.x - 180) / 180);
         c.ci = -1; c.bomb = false; c.fire = false; c.ice = false; c.frozen = false; c.sun = false; c.daisy = false;
       });
@@ -529,7 +574,7 @@
       if (charged) bits.push('ГРОМОВОЙ ВЗРЫВ');
       else if (napalm) bits.push('НАПАЛМ');
       else if (nb) bits.push(nb > 1 ? 'БАБАХ ×' + nb : 'БАБАХ!');
-      if (suns) bits.unshift({ storm: 'СОЛНЕЧНАЯ БУРЯ', prism: 'ПРИЗМА', nuke: 'ТЕРМОЯД', flare: 'ПРОТУБЕРАНЕЦ', binary: 'ДВОЙНАЯ ЗВЕЗДА', beam: 'СОЛНЕЧНАЯ ВСПЫШКА' }[sunMode] || 'СОЛНЦЕ!');
+      if (suns) bits.unshift({ hurricane: 'УРАГАН', sky: 'НЕБЕСНЫЙ ОГОНЬ', bunny: 'СОЛНЕЧНЫЕ ЗАЙЧИКИ', prism: 'ПРИЗМА', nuke: 'ТЕРМОЯД', flare: 'ПРОТУБЕРАНЕЦ', binary: 'ДВОЙНАЯ ЗВЕЗДА', beam: 'СОЛНЕЧНАЯ ВСПЫШКА' }[sunMode] || 'СОЛНЦЕ!');
       if (ices) bits.push({ storm: 'ЛЕДЯНОЙ РАЗРЯД', fan: 'ЛЕДЯНОЙ ВЕЕР', steam: 'ПАРОВОЙ ВЗРЫВ', glacier: 'ЛЕДНИКОВЫЙ ПЕРИОД', burst: 'ЛЕДЯНОЙ ВЗРЫВ' }[iceMode] || 'ЛЁД!');
       else if (frozenHit >= 3) bits.push('ЗВОН ЛЬДА');
       pts += frozenHit * 20;
@@ -547,6 +592,7 @@
       if (full.length > 1) bits.push(full.length + ' ' + U.plural(full.length, 'ЛИНИЯ', 'ЛИНИИ', 'ЛИНИЙ'));
       if (combo > 1) bits.push('КОМБО ×' + combo);
       if (cells.every(c => c.ci < 0)) { pts += 300; stat.clears++; bits.push('ЧИСТОЕ ПОЛЕ'); confetti(); }
+      if (bloomT > 0) { pts *= 3; bits.push('ЦВЕТЕНИЕ ×3'); }
       score += pts;
       floatText('+' + U.fmt(pts), ox, oy, 30 + Math.min(full.length, 4) * 5);
       if (bits.length) showBanner([...new Set(bits)].join(' · '), types.size >= 3 ? '#FF8FD1' : suns ? SUNC : charged ? '#C9E8FF' : ices ? ICEC : fires ? FIREC : nb ? CORAL : strike ? BOLTC : comboColor(combo));
@@ -649,10 +695,11 @@
     afterMove();
   }
   /** Мягко смести список сот: без цепочек, с очками за каждую. */
+  let sweepBfly = false;
   function sweep(list, ox, oy, per, speed = 520) {
     list.forEach(c => {
       if (c.ci < 0) return;
-      c.fx = { ci: c.ci, v: c.v, age: time - c.born, delay: Math.hypot(c.x - ox, c.y - oy) / speed, t: 0, burst: false, hole: { cx: ox, cy: oy } };
+      c.fx = { bfly: !!sweepBfly, ci: c.ci, v: c.v, age: time - c.born, delay: Math.hypot(c.x - ox, c.y - oy) / speed, t: 0, burst: false, hole: { cx: ox, cy: oy } };
       c.ci = -1; c.bomb = c.fire = c.ice = c.frozen = c.sun = c.daisy = false;
     });
     const pts = list.length * per;
@@ -705,6 +752,11 @@
   }
   function updateDaisies(dt) {
     const live = mode === 'play' || mode === 'demo';
+    if (bloomT > 0 && (mode === 'demo' || (mode === 'play' && inputOn))) {
+      bloomT = Math.max(0, bloomT - dt);
+      if (bloomT === 0) { HB.sfx.daisyWilt(); showBanner('ЦВЕТЕНИЕ ЗАКОНЧИЛОСЬ', '#FFB3D9'); }
+      else if (Math.random() < dt * 2.5) parts.push({ k: 'petal', x: rnd(10, 350), y: -10, vx: rnd(10, 40), vy: rnd(30, 60), g: 10, t: 0, life: rnd(4, 6), color: pick(['#FFFFFF', '#FFD1E8', '#FFF3B0']), r: rnd(2.5, 4), rot: rnd(0, TAU), vr: rnd(-3, 3), soft: true });
+    }
     if (live && (inputOn || mode === 'demo')) cells.forEach(c => {
       if (!c.daisy || c.dAsc) return;
       c.dT -= dt;
@@ -733,7 +785,9 @@
         whiteFlash = 1.8; flashTint = '255,252,235';
         [0, .12, .26, .42].forEach((d, i) => rings.push({ x: a.x, y: a.y - 70, t: -d, color: i % 2 ? '#FFE9A0' : '#FFFFFF', big: true, huge: true }));
         const all = cells.filter(c => c.ci >= 0);
-        sweep(all, a.x, a.y, 0, 420);
+        sweepBfly = true; sweep(all, a.x, a.y, 0, 420); sweepBfly = false;
+        bloomT = BLOOM_T; HB.sfx.bloomStart();
+        setTimeout(() => showBanner('ЦВЕТУЩЕЕ ПОЛЕ · ОЧКИ ×3 НА 30 СЕКУНД', '#FFB3D9'), 900);
         score += 2000; stat.clears++; bump = 1;
         floatText('+2000', 180, CY - 60, 46, '#FFF3B0');
         confetti(70);
@@ -927,9 +981,9 @@
     cells.forEach(c => { c.ci = -1; c.bomb = false; c.fire = false; c.ice = false; c.frozen = false; c.sun = false; c.daisy = false; c.pt = 9; c.fx = null; c.gt = -1; });
     gifts = []; ascend = null;
     score = shown = 0; combo = miss = 0; stat = { lines: 0, maxCombo: 0, clears: 0 };
-    pending = []; charge = 0; undoCharges = 0; snap = null; lastAward = 0; hold = null; holdHint = false; paidChances = 0;
+    pending = []; charge = 0; undoCharges = 0; snap = null; lastAward = 0; hold = null; holdHint = false; paidChances = 0; bloomT = 0;
     best = HB.best(); bestAtStart = best; recordShown = false; isRecord = false;
-    parts = []; rings = []; floats = []; banners = []; splats = []; booms = []; strikes = []; hudFx = []; flames = []; sunBeams = [];
+    parts = []; snowflakes = []; hurricanes = []; bunnies = []; skyfires = []; rings = []; floats = []; banners = []; splats = []; booms = []; strikes = []; hudFx = []; flames = []; sunBeams = [];
     drag = ghost = preview = null; idleT = 0;
     refill(); updateFits();
     mode = 'play';
@@ -952,23 +1006,24 @@
     { id: 'boltring', g: ['bolt'], need: ['bolt'], name: 'Кольцо молний', desc: 'Молния замкнула свой ряд и вторым ударом бьёт по соседям.', piece: 'bolt', set: s => { s.row(); s.ring(0, 0); s.fill(8); } },
     { id: 'firestorm', g: ['bolt', 'fire'], need: ['bolt', 'fire'], name: 'Огненная буря', desc: 'Молния раздувает костёр: сразу три языка пламени.', piece: 'bolt', set: s => { s.row(); s.put(-2, 0, 'fire'); s.fill(18); } },
     { id: 'icestorm', g: ['bolt', 'ice'], need: ['bolt', 'ice'], name: 'Ледяной разряд', desc: 'Иней ползёт по трём линиям и всё разом лопается.', piece: 'bolt', set: s => { s.row(); s.put(-2, 0, 'ice'); s.region((q, r) => q === -2 || q + r === -2, 20); s.fill(6); } },
-    { id: 'sunstorm', g: ['bolt', 'sun'], need: ['bolt', 'sun'], name: 'Солнечная буря', desc: 'Солнце сразу на пределе, три луча прожигают все линии через него.', piece: 'bolt', set: s => { s.row(); s.put(-3, 0, 'sun', 2); s.fill(16); } },
+    { id: 'sunstorm', g: ['bolt', 'sun'], need: ['bolt', 'sun'], len: 5, name: 'Ураган', desc: 'Молния задела солнце: вокруг поля поднимается вихрь, кружит соты и уносит 5–6 рядов.', piece: 'bolt', set: s => { s.row(); s.put(-3, 0, 'sun', 2); s.fill(16); } },
     { id: 'fire', g: ['fire'], need: ['fire'], name: 'Костёр', desc: 'Огонь бежит по 6–8 случайным сотам: прямо или зигзагом.', set: s => { s.row(); s.put(-2, 0, 'fire'); s.fill(18); } },
     { id: 'forest', g: ['fire'], need: ['fire'], name: 'Лесной пожар', desc: 'Огонь добежал до другого костра, и тот тоже вспыхивает.', seed: 0, set: s => { s.row(); s.put(-2, 0, 'fire'); [[-2, -1], [-1, -1], [-3, 1], [-2, 1]].forEach(([q, r]) => s.put(q, r, 'fire')); s.fill(12); } },
     { id: 'steam', g: ['fire', 'ice'], need: ['fire', 'ice'], name: 'Паровой взрыв', desc: 'Лёд и огонь встретились: облако пара обжигает всё вокруг.', set: s => { s.row(); s.put(-2, 0, 'ice'); s.put(-2, -1, 'fire'); s.fill(14); } },
     { id: 'flare', g: ['fire', 'sun'], need: ['fire', 'sun'], name: 'Протуберанец', desc: 'Солнце и огонь подпитали друг друга: огонь бежит двумя длинными языками.', set: s => { s.row(); s.put(-3, 0, 'sun', 1); s.put(-3, -1, 'fire'); s.fill(18); } },
     { id: 'freeze', g: ['ice'], need: ['ice'], name: 'Заморозка', desc: 'Поставленный лёд замораживает соседей, они потом звонко лопаются.', piece: 'ice', target: [0, -1], set: s => { s.ring(0, -1); s.fill(10); } },
-    { id: 'iceburst', g: ['ice'], need: ['ice'], name: 'Ледяной взрыв', desc: 'Лёд сгорел в линии, и кольцо вокруг лопается.', set: s => { s.row(); s.put(-2, 0, 'ice'); s.ring(-2, 0); s.fill(8); } },
+    { id: 'iceburst', g: ['ice'], need: ['ice'], name: 'Ледяной взрыв', desc: 'Лёд сгорел в линии и раскрывается снежинкой: кольцо вокруг и шесть лучей на три соты.', set: s => { s.row(); s.put(-2, 0, 'ice'); s.ring(-2, 0); s.fill(8); } },
     { id: 'glacier', g: ['ice'], need: ['ice'], name: 'Ледниковый период', desc: 'Лёд разбудил лёд: иней расходится на два кольца.', set: s => { s.row(); s.put(-2, 0, 'ice'); s.put(-2, -1, 'ice'); s.fill(18); } },
     { id: 'prism', g: ['ice', 'sun'], need: ['ice', 'sun'], name: 'Призма', desc: 'Лёд в зоне солнца раскладывает луч на шесть радужных лучей.', set: s => { s.row(); s.put(-3, 0, 'sun', 2); s.put(-3, -1, 'ice'); s.fill(22); } },
-    { id: 'sun', g: ['sun'], need: ['sun'], name: 'Солнечная вспышка', desc: 'Разбитое солнце бьёт лучом с неба по всей своей зоне.', set: s => { s.row(); s.put(-3, 0, 'sun', 3); s.fill(18); } },
+    { id: 'sun', g: ['sun'], need: ['sun'], len: 4.6, name: 'Солнечные зайчики', desc: 'Разбил солнце сам: луч бьёт по его зоне, а солнце рассыпается зайчиками, которые прыгают по полю и выжигают соты.', set: s => { s.row(); s.put(-3, 0, 'sun', 2); s.fill(18); } },
+    { id: 'twosun', g: ['sun'], need: ['sun'], len: 5, name: 'Небесный огонь', desc: 'Два солнца в одной цепочке: с неба быстро бьют лучи и выжигают всё поле.', set: s => { s.row(); s.put(-3, 0, 'sun', 2); s.put(3, 0, 'sun', 1); s.fill(26); } },
     { id: 'sunauto', g: ['sun'], need: ['sun'], name: 'Луч бьёт сам', desc: 'Солнце на пределе: на следующий ход луч ударит без твоей помощи.', set: s => { s.put(-2, -1, 'sun', 3); s.fill(22); } },
-    { id: 'binary', g: ['sun'], need: ['sun'], name: 'Двойная звезда', desc: 'Луч задел другое солнце, и между ними вспыхивает мост света.', set: s => { s.row(); s.put(-3, 0, 'sun', 2); s.put(-2, -2, 'sun', 1); s.fill(14); } },
+    { id: 'binary', g: ['sun'], need: ['sun'], name: 'Двойная звезда', desc: 'Луч задел другое солнце: между ними вспыхивает мост света, а с неба обрушивается небесный огонь.', set: s => { s.row(); s.put(-3, 0, 'sun', 2); s.put(-2, -2, 'sun', 1); s.fill(14); } },
     { id: 'daisy1', g: ['daisy'], need: ['daisy'], len: 4.6, name: 'Ромашка: 1-й лепесток', desc: 'Ряд сгорел, а ромашка осталась. Лепесток отрывается, и цветок дарит соту, которая закроет ряд.', set: s => { s.row(); s.put(2, 0, 'daisy', 5); [-3, -2, -1, 0, 1, 3, 4].forEach(q => s.put(q, -1, 'ci')); s.region((q, r) => r >= 2, 12); } },
     { id: 'daisy2', g: ['daisy'], need: ['daisy'], len: 4.2, name: 'Ромашка: 2-й лепесток', desc: 'Второй лепесток превращает одну из твоих фигур в особую.', piece2: true, set: s => { s.row(); s.put(2, 0, 'daisy', 4); s.fill(14); } },
     { id: 'daisy3', g: ['daisy'], need: ['daisy'], len: 4.6, piece2: true, spec2: 'bomb', name: 'Ромашка: 3-й лепесток', desc: 'Третий лепесток меняет фигуры на те, что помогут ромашке расцвести: они закрывают ряды через неё. Особые соты со старых фигур переезжают на новые.', set: s => { s.row(); s.put(2, 0, 'daisy', 3); s.fill(18); } },
     { id: 'daisy4', g: ['daisy'], need: ['daisy'], len: 4.4, name: 'Ромашка: опыление', desc: 'Четвёртый лепесток: пыльца летит ко всем сотам самого частого цвета, они расцветают и исчезают.', set: s => { s.row(); s.put(2, 0, 'daisy', 2); s.fill(28); } },
-    { id: 'daisy5', g: ['daisy'], need: ['daisy'], len: 5.6, name: 'Ромашка: вознесение', desc: 'Пятый лепесток: вихрь лепестков, цветок возносится в столбе света, и всё поле очищается.', set: s => { s.row(); s.put(2, 0, 'daisy', 1); s.fill(30); } },
+    { id: 'daisy5', g: ['daisy'], need: ['daisy'], len: 5.6, name: 'Ромашка: вознесение', desc: 'Пятый лепесток: цветок возносится в столбе света, всё поле очищается (+2000), из сот вылетают бабочки, и начинается Цветущее поле: 30 секунд очки ×3.', set: s => { s.row(); s.put(2, 0, 'daisy', 1); s.fill(30); } },
     { id: 'chaos', g: ['multi'], need: ['bolt', 'bomb', 'ice'], len: 5.2, name: 'Стихийный хаос', desc: 'Три разные стихии в одной цепочке: очки ×2, радужные волны и замедление.', piece: 'bolt', set: s => { s.row(); s.put(2, 0, 'bomb'); s.put(-2, 0, 'ice'); s.fill(14); } },
     { id: 'frostsun', g: ['multi'], need: ['ice', 'sun', 'bomb'], len: 5.4, name: 'Мороз + солнце + бомба', desc: 'Призма, термояд и хаос разом: радужные лучи и ядерная вспышка.', set: s => { s.row(); s.put(-3, 0, 'sun', 2); s.put(-3, -1, 'ice'); s.put(-2, -1, 'bomb'); s.fill(18); } },
     { id: 'apocalypse', g: ['multi'], need: ['bolt', 'bomb', 'ice', 'fire', 'sun'], len: 5.8, name: 'Апокалипсис', desc: 'Четыре и больше стихий в одной цепочке: очки ×3 и всё, что есть в игре.', piece: 'bolt', set: s => { s.row(); s.put(2, 0, 'bomb'); s.put(-2, 0, 'ice'); s.put(3, 0, 'fire'); s.put(-4, 0, 'sun', 2); s.fill(18); } }
@@ -997,11 +1052,11 @@
     updateFits();
   }
   let demo = null, lastShake = 0;
-  const clearFx = () => { gifts = []; ascend = null; parts = []; rings = []; floats = []; banners = []; splats = []; booms = []; strikes = []; flames = []; sunBeams = []; hudFx = []; slowmo = freeze = shake = punch = whiteFlash = 0; };
+  const clearFx = () => { bloomT = 0; gifts = []; ascend = null; parts = []; snowflakes = []; hurricanes = []; bunnies = []; skyfires = []; rings = []; floats = []; banners = []; splats = []; booms = []; strikes = []; flames = []; sunBeams = []; hudFx = []; slowmo = freeze = shake = punch = whiteFlash = 0; };
   /** Открыть показ комбо id. Если показ уже идёт, партия уже отложена: просто переключаем ролик. */
   function startDemo(id, onEnd, onDone) {
     const cb = COMBOS.find(c => c.id === id); if (!cb) return;
-    const saved = demo ? demo.saved : { s: snapshot(), mode, undoCharges, snap, bestAtStart, recordShown, rnd: Math.random, onEnd };
+    const saved = demo ? demo.saved : { s: snapshot(), mode, undoCharges, snap, bestAtStart, recordShown, rnd: Math.random, onEnd, bloomT };
     clearFx();
     drag = ghost = preview = boltPreview = null;
     Math.random = saved.rnd;
@@ -1020,6 +1075,7 @@
     clearFx();
     drag = ghost = preview = boltPreview = null;
     restore(sv.s);
+    bloomT = sv.bloomT || 0;
     mode = sv.mode; undoCharges = sv.undoCharges; snap = sv.snap; bestAtStart = sv.bestAtStart; recordShown = sv.recordShown;
     shown = score; best = HB.best();
     demo = null;
@@ -1047,7 +1103,7 @@
   /** Для автотеста и подбора сида: разыграть комбо мгновенно и вернуть текст баннеров. */
   function probeCombo(id, seed) {
     const cb = COMBOS.find(c => c.id === id);
-    const saved = { s: snapshot(), mode, rnd: Math.random };
+    const saved = { s: snapshot(), mode, rnd: Math.random, bloomT };
     setupCombo(cb);
     mode = 'demo';
     const tq = cb.target || [0, 0], tc = map.get(key(tq[0], tq[1]));
@@ -1059,7 +1115,7 @@
     const out = bannerLog;
     Math.random = saved.rnd; demo = null; gifts = []; ascend = null;
     parts = []; rings = []; floats = []; banners = []; splats = []; booms = []; strikes = []; flames = []; sunBeams = [];
-    restore(saved.s); mode = saved.mode;
+    restore(saved.s); mode = saved.mode; bloomT = saved.bloomT;
     return out;
   }
   function drawDemo(c) {
@@ -1124,8 +1180,9 @@
       drops(b.x, b.y, '#DDF4FF', 8);
     } else {
       HB.sfx.iceBurst(pan); HB.haptic('shatter');
-      whiteFlash = Math.max(whiteFlash, .6); shake = Math.max(shake, 14);
-      rings.push({ x: b.x, y: b.y, t: 0, color: ICEC, big: true });
+      whiteFlash = Math.max(whiteFlash, .7); shake = Math.max(shake, 16); slowmo = Math.max(slowmo, .35);
+      snowflakes.push({ x: b.x, y: b.y, t: 0, life: 1.3, rot: rnd(-.2, .2) });
+      rings.push({ x: b.x, y: b.y, t: -.3, color: ICEC, big: true });
       iceShards(b.x, b.y, '#BDEBFF', 3);
     }
   }
@@ -1155,6 +1212,8 @@
     (b.rays || []).forEach(([x2, y2, d], i) => sunBeams.push({ kind: 'line', x: b.x, y: b.y, x2, y2, t: -.3 - i * .05, life: 1.45, w: w * .6, over: 90, col: ['255,94,126', '255,184,77', '255,228,92', '94,224,138', '77,195,255', '154,123,255'][d % 6] }));
     if (b.from) sunBeams.push({ kind: 'line', x: b.from[0], y: b.from[1], x2: b.x, y2: b.y, t: 0, life: 1.2, w: w * .7, col: '255,190,110' });
     if (b.mode === 'nuke') { blast(b.x, b.y, 1.8); whiteFlash = 2.2; }
+    if (b.mode === 'hurricane') { HB.sfx.hurricane(); HB.haptic('icestorm'); slowmo = Math.max(slowmo, 1.1); }
+    if (b.mode === 'bunny') setTimeout(() => HB.sfx.bunnies(), 250);
     if (b.mode === 'flare') for (let i = 0; i < 34; i++) { const a = rnd(0, TAU), v = rnd(80, 220); parts.push({ k: 'flamep', x: b.x + Math.cos(a) * 14, y: b.y + Math.sin(a) * 14, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 60, g: -30, t: -rnd(.3, .6), life: rnd(.5, .9), color: '#FF8A00', r: rnd(10, 18) }); }
   }
   function explode(b) {
@@ -1240,7 +1299,9 @@
         if (!fx.burst && fx.t >= fx.delay) {
           fx.burst = true;
           const col = colorOf(fx.ci), B = HB.fx.bursts[HB.profile.burst];
-          if (fx.sunburn || fx.sun) sunVapor(cl.x, cl.y, fx.prism);
+          if (bloomT > 0 || fx.bfly) parts.push({ k: 'butterfly', soft: true, x: cl.x, y: cl.y, vx: rnd(-50, 50), vy: rnd(-90, -40), g: 0, t: 0, life: rnd(1.8, 2.8), color: Math.random() < .5 ? col : pick(['#FF7AA2', '#FFD23F', '#7AD7FF', '#B388EB', '#FF9F4A', '#6EE7B7']), r: rnd(7, 10), rot: rnd(0, TAU) });
+          if (fx.orbit) { parts.push({ k: 'orbit', cx: 180, cy: CY, ang: Math.atan2(cl.y - CY, cl.x - 180), rad: Math.hypot(cl.x - 180, cl.y - CY), rad1: 178 + rnd(-14, 14), w: rnd(3.5, 5), t: 0, life: rnd(1.3, 1.7), color: col, r: S * .8, tile: true, rot: 0 }); }
+          else if (fx.sunburn || fx.sun) sunVapor(cl.x, cl.y, fx.prism);
           else if (fx.frozen || fx.ice || fx.frost != null) { iceShards(cl.x, cl.y, col); if (tinkles++ < 3) HB.sfx.iceCrack((cl.x - 180) / 180); }
           else if (B) B.cell(fxApi, cl.x, cl.y, col, fx.hole || { cx: cl.x, cy: cl.y });
           else if (!HB.skins.breakFx(fxApi, cl.x, cl.y, col, fx.v)) {
@@ -1276,7 +1337,7 @@
     for (const s of sunBeams) {
       s.t += dt;
       // Луч долетел до конца зоны: вспышка искр и кольцо в точке удара.
-      if (s.kind === 'line' && !s.hit && s.t >= .2) {
+      if (s.kind === 'line' && !s.hit && !s.noHit && s.t >= .2) {
         s.hit = true;
         const col = `rgb(${s.col || '255,215,130'})`, ang = Math.atan2(s.y2 - s.y, s.x2 - s.x);
         rings.push({ x: s.x2, y: s.y2, t: 0, color: col });
@@ -1284,6 +1345,38 @@
       }
     }
     sunBeams = sunBeams.filter(s => s.t < s.life);
+    for (const f of snowflakes) f.t += dt;
+    snowflakes = snowflakes.filter(f => f.t < f.life);
+    for (const h of hurricanes) {
+      h.t += dt;
+      if (h.t < 0) continue;
+      if (!h.started) { h.started = true; shake = Math.max(shake, 14); }
+      // Песчинки и пыль кружат по краю поля.
+      const k = h.t / h.life, n = Math.round(dt * 260 * (1 - k * .6));
+      for (let i = 0; i < n; i++) parts.push({ k: 'orbit', cx: 180, cy: CY, ang: rnd(0, TAU), rad: rnd(140, 205), rad1: rnd(150, 215), w: rnd(4, 6.5), t: 0, life: rnd(.6, 1.2), color: pick(['rgba(235,205,150,.9)', 'rgba(210,180,130,.8)', 'rgba(255,240,200,.9)']), r: rnd(.8, 2), soft: true });
+      if (Math.random() < dt * 8) HB.haptic('tick');
+    }
+    hurricanes = hurricanes.filter(h => h.t < h.life);
+    for (const s of skyfires) {
+      s.t += dt;
+      if (s.t < 0) continue;
+      if (!s.started) { s.started = true; HB.sfx.skyfire(); HB.haptic('sun'); whiteFlash = Math.max(whiteFlash, 1.4); flashTint = '255,236,190'; slowmo = Math.max(slowmo, 1.2); }
+      // С неба, из-под камеры телефона, быстро мелькают лучи по всему полю.
+      const n = Math.round(dt * 70);
+      for (let i = 0; i < n; i++) {
+        const c0 = cells[rand(cells.length)];
+        sunBeams.push({ kind: 'line', x: 180 + rnd(-50, 50), y: -30, x2: c0.x + rnd(-6, 6), y2: c0.y + rnd(-6, 6), t: 0, life: rnd(.22, .38), w: rnd(3.5, 7), over: 14, col: pick(['255,236,170', '255,250,225', '255,200,120']), noHit: Math.random() < .8 });
+      }
+      shake = Math.max(shake, 10);
+    }
+    skyfires = skyfires.filter(s => s.t < s.life);
+    for (const b of bunnies) {
+      b.t += dt;
+      if (b.t < 0) continue;
+      const h = Math.floor(b.t / b.hop);
+      if (h > b.h && h < b.pts.length) { b.h = h; const [x, y] = b.pts[h]; HB.sfx.bunnyHop(h); for (let i = 0; i < 6; i++) parts.push({ k: 'star4', soft: true, x, y, vx: rnd(-80, 80), vy: rnd(-90, 20), g: 60, t: 0, life: rnd(.4, .7), color: i % 2 ? '#FFFFFF' : '#FFE08A', r: rnd(2, 3.5) }); rings.push({ x, y, t: 0, color: '#FFE9A0' }); }
+    }
+    bunnies = bunnies.filter(b => b.t < (b.pts.length - 1) * b.hop + .25);
     if (combo >= 2 && mode === 'play') {
       hudAcc += dt * (10 + Math.min(combo, 8) * 5) * (1 - miss * .25);
       while (hudAcc > 1) {
@@ -1576,6 +1669,59 @@
     [.5, .9, 1.35].forEach((m, i) => { c.fillStyle = `rgba(${['255,200,120', '180,220,255', '255,160,200'][i]},${.14 * a})`; hexPath(c, x + vx * m, y + vy * m, 10 + i * 9); c.fill(); });
     c.restore();
   }
+  /** Снежинка из взрыва льда: шесть лучей с веточками вырастают и тают. */
+  function drawSnowflakes(c) {
+    for (const f of snowflakes) {
+      const k = f.t / f.life, grow = eo(clamp(f.t / .4)), a = 1 - clamp((k - .55) / .45), L = S * R3 * 3.2 * grow;
+      c.save(); c.translate(f.x, f.y); c.rotate(f.rot + f.t * .4); c.globalCompositeOperation = 'lighter'; c.lineCap = 'round';
+      const arm = (w, col) => {
+        c.strokeStyle = col; c.lineWidth = w; c.beginPath();
+        for (let i = 0; i < 6; i++) {
+          const an = i * TAU / 6, ca = Math.cos(an), sa = Math.sin(an);
+          c.moveTo(0, 0); c.lineTo(ca * L, sa * L);
+          [[.42, .3], [.7, .22]].forEach(([p, bl]) => {
+            const bx = ca * L * p, by = sa * L * p;
+            [-1, 1].forEach(sd => { const b2 = an + sd * Math.PI / 3; c.moveTo(bx, by); c.lineTo(bx + Math.cos(b2) * L * bl, by + Math.sin(b2) * L * bl); });
+          });
+        }
+        c.stroke();
+      };
+      arm(9, `rgba(120,200,255,${.25 * a})`); arm(4, `rgba(190,235,255,${.6 * a})`); arm(1.6, `rgba(255,255,255,${a})`);
+      const g = c.createRadialGradient(0, 0, 0, 0, 0, 22); g.addColorStop(0, `rgba(255,255,255,${a})`); g.addColorStop(1, 'rgba(200,240,255,0)');
+      c.fillStyle = g; c.beginPath(); c.arc(0, 0, 22, 0, TAU); c.fill();
+      c.restore();
+    }
+  }
+  /** Ураган: полупрозрачные струи ветра по кругу вокруг поля. */
+  function drawHurricanes(c) {
+    for (const h of hurricanes) {
+      if (h.t < 0) continue;
+      const k = h.t / h.life, a = Math.min(1, h.t / .3) * (1 - clamp((k - .7) / .3));
+      c.save(); c.translate(180, CY); c.lineCap = 'round';
+      for (let i = 0; i < 14; i++) {
+        const r = 140 + (i % 7) * 11, st = h.t * (4.5 + (i % 3)) + i * 1.9, len = .7 + (i % 4) * .25;
+        c.strokeStyle = `rgba(235,215,175,${(.1 + (i % 3) * .06) * a})`; c.lineWidth = 2 + (i % 3) * 2;
+        c.beginPath(); c.arc(0, 0, r, st, st + len); c.stroke();
+      }
+      const g = c.createRadialGradient(0, 0, 120, 0, 0, 230); g.addColorStop(0, 'rgba(120,100,70,0)'); g.addColorStop(.7, `rgba(150,125,90,${.18 * a})`); g.addColorStop(1, 'rgba(120,100,70,0)');
+      c.fillStyle = g; c.beginPath(); c.arc(0, 0, 230, 0, TAU); c.fill();
+      c.restore();
+    }
+  }
+  /** Солнечные зайчики: яркие пятна света прыгают по дугам с соты на соту. */
+  function drawBunnies(c) {
+    for (const b of bunnies) {
+      if (b.t < 0) continue;
+      const h = Math.min(b.pts.length - 2, Math.floor(b.t / b.hop)), f = clamp((b.t - h * b.hop) / b.hop);
+      const [x0, y0] = b.pts[h], [x1, y1] = b.pts[h + 1];
+      const x = lerp(x0, x1, f), y = lerp(y0, y1, f) - Math.sin(Math.PI * f) * 28;
+      c.save(); c.globalCompositeOperation = 'lighter';
+      const g = c.createRadialGradient(x, y, 0, x, y, 22); g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(.3, 'rgba(255,236,160,.8)'); g.addColorStop(1, 'rgba(255,200,90,0)');
+      c.fillStyle = g; c.beginPath(); c.arc(x, y, 22, 0, TAU); c.fill();
+      c.fillStyle = 'rgba(255,245,210,.25)'; c.beginPath(); c.ellipse(x, lerp(y0, y1, f) + 4, 12 * (1 - Math.sin(Math.PI * f) * .5), 4, 0, 0, TAU); c.fill();
+      c.restore();
+    }
+  }
   function drawSunBeams(c) {
     for (const s of sunBeams) {
       if (s.t < 0) continue;
@@ -1771,7 +1917,10 @@
       tile(c, cl.x, cl.y, S * .93 * sc, col, o);
     }
     drawStrikes(c);
+    drawHurricanes(c);
     drawSunBeams(c);
+    drawSnowflakes(c);
+    drawBunnies(c);
     for (const r of rings) {
       if (r.t < 0) continue;
       const life = r.big ? .7 : .55, p = r.t / life, maxR = r.huge ? 320 : r.big ? 230 : 150;
@@ -1897,6 +2046,19 @@
       text(c, label, 0, 1, `900 12px ${FB}`, '#FFD07A');
       c.restore();
     }
+    if (bloomT > 0 && !fire) {
+      // Плашка цветения: время тает по кольцу вокруг ромашки.
+      const label = '×3 ЦВЕТЕНИЕ ' + Math.ceil(bloomT);
+      c.font = `900 12px ${FB}`;
+      const w = c.measureText(label).width + 40, pulse = 1 + .04 * Math.sin(time * 4);
+      c.save(); c.translate(180, 90 + TOP); c.scale(pulse, pulse);
+      rr(c, -w / 2, -11, w, 22, 11); c.fillStyle = 'rgba(255,120,190,.2)'; c.fill();
+      c.lineWidth = 1.5; c.strokeStyle = 'rgba(255,180,220,.85)'; c.stroke();
+      drawDaisy(c, -w / 2 + 13, 0, 8, time);
+      c.strokeStyle = '#FFE9A0'; c.lineWidth = 1.6; c.beginPath(); c.arc(-w / 2 + 13, 0, 9.5, -Math.PI / 2, -Math.PI / 2 + TAU * bloomT / BLOOM_T); c.stroke();
+      text(c, label, 8, 1, `900 12px ${FB}`, '#FFE0F0');
+      c.restore();
+    }
     text(c, 'ЛУЧШИЙ', 340, 30 + TOP, `800 10px ${FB}`, '#6F69A0', 'right');
     text(c, U.fmt(best), 340, 51 + TOP, `800 19px ${FD}`, '#A39DD0', 'right');
     if (HB.settings.bomb && HB.settings.bombSource !== 'random') {
@@ -2001,13 +2163,21 @@
   resize();
   const hasSave = load();
   let last = performance.now();
+  // Следующий кадр заказывается первым: даже если в этом кадре что-то сломается,
+  // игра продолжит рисоваться, а не застынет с пустым полем.
+  const errLog = e => { try { const l = HB.store.get('hb.errors', []); l.push({ t: Date.now(), v: HB.appVersion ? HB.appVersion() : '', m: String(e && e.message || e), s: String(e && e.stack || '').slice(0, 600) }); HB.store.set('hb.errors', l.slice(-8)); } catch (x) {} };
+  let errCount = 0;
   function frame(now) {
+    requestAnimationFrame(frame);
     let dt = Math.min(.05, Math.max(0, (now - last) / 1000)); last = now;
     if (freeze > 0) { freeze -= dt; dt *= .08; }
     else if (slowmo > 0) { slowmo -= dt; dt *= .38; }
-    update(dt);
-    draw();
-    requestAnimationFrame(frame);
+    try { update(dt); } catch (e) { if (errCount++ < 20) errLog(e); }
+    try { draw(); } catch (e) {
+      if (errCount++ < 20) errLog(e);
+      // Сбрасываем незакрытые save()/clip после ошибки посреди кадра.
+      try { if (ctx.reset) ctx.reset(); else { ctx.restore(); ctx.restore(); ctx.restore(); } } catch (x) {}
+    }
   }
   requestAnimationFrame(frame);
 

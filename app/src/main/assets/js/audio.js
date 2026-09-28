@@ -697,6 +697,39 @@
       noiseHit(t + 1.45, { vol: .1, dur: 2.5, freq: 6000, to: 2500, type: 'bandpass', q: .7, rev: 1, attack: .15 });
       for (let i = 0; i < 14; i++) bell(mtof([96, 100, 103, 108][i % 4]), t + 1.7 + i * .09 + Math.random() * .05, { vol: .012, dur: 1.4, pan: Math.random() * 1.6 - .8, send: .3 });
     },
+    /** Ураган: воющий ветер, свист и низкий гул. */
+    hurricane() {
+      if (!ready()) return; const t = now();
+      const s = ac.createBufferSource(); s.buffer = brown; s.loop = true;
+      const f = ac.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 2.5;
+      f.frequency.setValueAtTime(250, t); f.frequency.linearRampToValueAtTime(900, t + 1); f.frequency.linearRampToValueAtTime(420, t + 2.6);
+      const lfo = ac.createOscillator(), lg = ac.createGain(); lfo.frequency.value = 1.6; lg.gain.value = 260; lfo.connect(lg); lg.connect(f.frequency);
+      const g = ac.createGain(); g.gain.setValueAtTime(.0001, t); g.gain.linearRampToValueAtTime(.9, t + .5); g.gain.setTargetAtTime(.0001, t + 2.2, .35);
+      s.connect(f); f.connect(g); out(g, 0, .5); s.start(t); s.stop(t + 3.4); lfo.start(t); lfo.stop(t + 3.4);
+      for (let i = 0; i < 3; i++) { const o = ac.createOscillator(); o.type = 'sine'; const tt = t + .3 + i * .6; o.frequency.setValueAtTime(700 + i * 140, tt); o.frequency.linearRampToValueAtTime(1100 + i * 90, tt + .5); o.frequency.linearRampToValueAtTime(650, tt + 1); const e = envGain(tt, .25, .02, .9); o.connect(e); out(e, i % 2 ? .6 : -.6, .6); o.start(tt); o.stop(tt + 1.3); }
+      rumble(t, 2.8, .7);
+    },
+    /** Небесный огонь: частые лазерные «вжик» сверху и нарастающий гул. */
+    skyfire() {
+      if (!ready()) return; const t = now();
+      for (let i = 0; i < 16; i++) {
+        const tt = t + i * .1 + Math.random() * .04, o = ac.createOscillator(); o.type = 'triangle';
+        o.frequency.setValueAtTime(1800 + Math.random() * 800, tt); o.frequency.exponentialRampToValueAtTime(260, tt + .12);
+        const e = envGain(tt, .003, .045, .14); o.connect(e); out(e, Math.random() * 1.6 - .8, .4); o.start(tt); o.stop(tt + .2);
+      }
+      noiseHit(t, { vol: .2, dur: 1.9, freq: 3000, to: 700, type: 'lowpass', q: .6, rev: .6, attack: .2 });
+      thud(t + .1, { vol: .5, from: 90, to: 30, dur: 1.2 });
+      rumble(t, 2.2, .9);
+    },
+    /** Солнечные зайчики рассыпаются: светлый звон. */
+    bunnies() { if (!ready()) return; const t = now(); [84, 88, 91, 96].forEach((m, i) => bell(mtof(m), t + i * .05, { vol: .03, dur: .8, pan: (i - 1.5) * .4 })); },
+    bunnyHop(h = 1) { if (!ready()) return; const t = now(); bell(mtof([79, 83, 86, 91][Math.min(3, h)] + Math.floor(Math.random() * 2) * 2), t, { vol: .035, dur: .45, pan: Math.random() * 1.2 - .6, ratio: 2, index: .8 }); noiseHit(t, { vol: .03, dur: .06, freq: 2500, type: 'bandpass', q: 2 }); },
+    /** Начало цветения: светлое восходящее арпеджио и тёплый аккорд. */
+    bloomStart() {
+      if (!ready()) return; const t = now() + .8;
+      [67, 72, 76, 79, 84, 88].forEach((m, i) => felt(mtof(m), t + i * .09, { vol: .045, dur: 2.6, pan: (i - 2.5) * .25 }));
+      glassBell(mtof(96), t + .6, { vol: .025, dur: 2 });
+    },
     /** Пузыри: светлое стеклянное мерцание и воздушный выдох, без «бульков». */
     bubbles() {
       if (!ready()) return; const t = now();
