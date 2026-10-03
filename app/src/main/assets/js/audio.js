@@ -851,6 +851,39 @@
       [67, 72, 76, 79, 84, 88].forEach((m, i) => felt(mtof(m), t + i * .09, { vol: .045, dur: 2.6, pan: (i - 2.5) * .25 }));
       glassBell(mtof(96), t + .6, { vol: .025, dur: 2 });
     },
+    /** Магнит поставлен: низкое гудение и металлический звон. */
+    magnetPlace() {
+      if (!ready()) return; const t = now();
+      const o = ac.createOscillator(); o.frequency.setValueAtTime(55, t); o.frequency.exponentialRampToValueAtTime(62, t + .5);
+      const g = envGain(t, .05, .16, .6); o.connect(g); out(g, 0, .2); o.start(t); o.stop(t + .8);
+      bell(mtof(74), t, { vol: .028, dur: 1.8, ratio: 1.414, index: 1.2, send: .4 });
+      noiseHit(t, { vol: .07, dur: .02, freq: 3200, type: 'bandpass', q: 3 });
+    },
+    /**
+     * Магнит срабатывает: гул с биениями нарастает и тянет вверх, поёт металл, как камертон,
+     * затем глубокий щелчок притяжения и тёмный бархатный аккорд, который долго звучит в груди.
+     */
+    magnet(zap = false) {
+      if (!ready()) return; const t = now();
+      [41.2, 41.75, 82.4].forEach((f, i) => {
+        const o = ac.createOscillator(); o.type = i < 2 ? 'sine' : 'triangle';
+        o.frequency.setValueAtTime(f, t); o.frequency.exponentialRampToValueAtTime(f * 1.5, t + .7);
+        const g = ac.createGain(); g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(i < 2 ? .26 : .05, t + .6); g.gain.setTargetAtTime(.0001, t + .74, .06);
+        o.connect(g); out(g, 0, .3); o.start(t); o.stop(t + 1.3);
+      });
+      noiseHit(t, { vol: .1, dur: .7, freq: 180, to: 2400, type: 'bandpass', q: 4, rev: .4, attack: .6 });
+      [55, 62, 67].forEach((m, i) => bell(mtof(m), t + .05 + i * .05, { vol: .028, dur: 3.5, ratio: 1.414, index: 1.4, pan: (i - 1) * .5, send: .5 }));
+      const s = t + .72;
+      thud(s, { vol: .85, from: 110, to: 28, dur: .9 });
+      for (let i = 0; i < 6; i++) noiseHit(s + i * .018 + Math.random() * .02, { vol: .08, dur: .025, freq: 2600 + Math.random() * 1500, type: 'bandpass', q: 3, rev: .3, attack: .001, pan: Math.random() * 1.4 - .7 });
+      [36, 43, 48, 55, 63, 70].forEach((m, i) => {
+        const o = ac.createOscillator(), f = ac.createBiquadFilter(); o.type = 'triangle'; o.frequency.value = mtof(m); o.detune.value = i % 2 ? 6 : -6;
+        f.type = 'lowpass'; f.frequency.value = 1400;
+        const g = envGain(s, .1, .045, 3.4); o.connect(f); f.connect(g); out(g, (i - 2.5) * .25, .9); o.start(s); o.stop(s + 3.7);
+      });
+      glassBell(mtof(zap ? 91 : 86), s + .12, { vol: .03, dur: 3 });
+      rumble(s, 2.4, zap ? 1.2 : .8);
+    },
     /** Пузыри: светлое стеклянное мерцание и воздушный выдох, без «бульков». */
     bubbles() {
       if (!ready()) return; const t = now();

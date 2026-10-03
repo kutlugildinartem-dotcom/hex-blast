@@ -48,6 +48,8 @@
     HB.settings.specials = m === 'both' ? ['bomb', 'bolt'] : m === 'bolt' ? ['bolt'] : ['bomb'];
   }
   HB.saveSettings = () => store.set('hb.settings', HB.settings);
+  // Магнит вышел в 1.20: один раз включаем его тем, у кого уже настроены особые соты.
+  if (!HB.settings.magnetSeen) { HB.settings.magnetSeen = true; if (Array.isArray(HB.settings.specials) && !HB.settings.specials.includes('magnet')) HB.settings.specials.push('magnet'); HB.saveSettings(); }
 
   /* ---------- профиль ---------- */
   const PROFILE_DEFAULT = {

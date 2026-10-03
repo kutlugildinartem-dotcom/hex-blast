@@ -25,7 +25,7 @@
   const cells = [], map = new Map();
   for (let q = -4; q <= 4; q++) for (let r = -4; r <= 4; r++) {
     if (Math.abs(q + r) > 4) continue;
-    const cl = { idx: cells.length, q, r, x: 0, y: 0, ci: -1, v: 0, daisy: false, dPet: 0, dT: 0, dAsc: false, born: 0, bomb: false, fire: false, ice: false, frozen: false, frzT: 0, frzAng: 0, sun: false, sunStage: 0, sunGrowT: -9, pt: 9, fx: null, gt: -1 };
+    const cl = { idx: cells.length, q, r, x: 0, y: 0, ci: -1, v: 0, daisy: false, dPet: 0, dT: 0, dAsc: false, magnet: false, mv: null, born: 0, bomb: false, fire: false, ice: false, frozen: false, frzT: 0, frzAng: 0, sun: false, sunStage: 0, sunGrowT: -9, pt: 9, fx: null, gt: -1 };
     cells.push(cl); map.set(key(q, r), cl);
   }
   const lines = [];
@@ -50,18 +50,18 @@
   let pending = [], charge = 0, undoCharges = 0, snap = null, lastAward = 0, holdHint = false;
   let mode = 'idle', inputOn = false, endT = 0, time = 0;
   let slowmo = 0, freeze = 0, punch = 0, shake = 0, bgFlash = 0, bgFlashColor = '#A78BFA', whiteFlash = 0, idleT = 0, trailT = 0;
-  let snowflakes = [], hurricanes = [], bunnies = [], skyfires = [];
+  let snowflakes = [], hurricanes = [], bunnies = [], skyfires = [], magFields = [];
   let parts = [], rings = [], floats = [], banners = [], splats = [], booms = [], strikes = [], hudFx = [], flames = [], crackT = 1, sunBeams = [], sunsOn = [], ripple = null, hudAcc = 0, flashTint = '255,245,230';
   const bgHex = Array.from({ length: 12 }, () => ({ x: rnd(0, W), y: rnd(0, 900), r: rnd(18, 60), s: rnd(4, 12), a: rnd(0, TAU), va: rnd(-.15, .15) }));
   const stars = Array.from({ length: 70 }, () => ({ x: rnd(0, W), y: rnd(0, 900), s: rnd(.8, 2), p: rnd(0, TAU) }));
 
   const pieceAt = i => i === 3 ? hold : tray[i];
-  function makePiece(i, delay, shape, ci, bomb = -1, vs = null, bolt = -1, fire = -1, ice = -1, sun = -1, daisy = -1) {
+  function makePiece(i, delay, shape, ci, bomb = -1, vs = null, bolt = -1, fire = -1, ice = -1, sun = -1, daisy = -1, magnet = -1) {
     const offs = shape.map(([dq, dr]) => [S * R3 * (dq + dr / 2), S * 1.5 * dr]);
     const mx = offs.reduce((a, o) => a + o[0], 0) / offs.length, my = offs.reduce((a, o) => a + o[1], 0) / offs.length;
     const xs = offs.map(o => o[0]), ys = offs.map(o => o[1]);
     return {
-      shape, ci, bomb, bolt, fire, ice, sun, daisy, vs: vs || shape.map(() => rand(10)), seed: rand(997),
+      shape, ci, bomb, bolt, fire, ice, sun, daisy, magnet, vs: vs || shape.map(() => rand(10)), seed: rand(997),
       offs: offs.map(o => [o[0] - mx, o[1] - my]),
       w: Math.max(...xs) - Math.min(...xs) + S * R3, h: Math.max(...ys) - Math.min(...ys) + S * 2,
       x: sx(i), y: TY + 40, sc: 0, scV: 0, rot: 0, delay, fits: true, fa: 1
@@ -89,7 +89,7 @@
   /** Какая особая сота придёт следующей: зависит от выбора в настройках. */
   const specials = () => (HB.settings.specials && HB.settings.specials.length ? HB.settings.specials : ['bomb']);
   // Бомба, молния, костёр и лёд приходят часто, солнце редко, ромашка совсем редко (примерно одна из двадцати).
-  const SPECIAL_W = { bomb: 1, bolt: 1, fire: 1, ice: 1, sun: .6, daisy: .25 };
+  const SPECIAL_W = { bomb: 1, bolt: 1, fire: 1, ice: 1, sun: .6, daisy: .25, magnet: 1 };
   function nextSpecial() {
     const sp = specials(), sum = sp.reduce((a, k) => a + (SPECIAL_W[k] || 1), 0);
     let r = Math.random() * sum;
@@ -99,7 +99,7 @@
   function earnSpecial() {
     const t = nextSpecial();
     pending.push(t);
-    showBanner(t === 'daisy' ? 'РОМАШКА РАСЦВЕЛА' : t === 'bolt' ? 'МОЛНИЯ ЗАРЯЖЕНА' : t === 'fire' ? 'КОСТЁР ГОТОВ' : t === 'ice' ? 'ЛЁД ГОТОВ' : t === 'sun' ? 'СОЛНЦЕ ГОТОВО' : 'БОМБА ЗАРЯЖЕНА', t === 'bolt' ? BOLTC : t === 'fire' ? FIREC : t === 'ice' ? ICEC : t === 'sun' ? SUNC : CORAL);
+    showBanner(t === 'magnet' ? 'МАГНИТ ЗАРЯЖЕН' : t === 'daisy' ? 'РОМАШКА РАСЦВЕЛА' : t === 'bolt' ? 'МОЛНИЯ ЗАРЯЖЕНА' : t === 'fire' ? 'КОСТЁР ГОТОВ' : t === 'ice' ? 'ЛЁД ГОТОВ' : t === 'sun' ? 'СОЛНЦЕ ГОТОВО' : 'БОМБА ЗАРЯЖЕНА', t === 'bolt' ? BOLTC : t === 'fire' ? FIREC : t === 'ice' ? ICEC : t === 'sun' ? SUNC : CORAL);
   }
   /** Путь огня от костра: случайно прямо, змейкой или зигзагом по занятым сотам. */
   function firePath(start, n) {
@@ -136,6 +136,20 @@
     }
     return out;
   }
+  /** Переставить содержимое соты c в соседнюю n, с плавным скольжением начиная с t0. */
+  const MOVE_F = ['ci', 'v', 'bomb', 'fire', 'ice', 'frozen', 'frzT', 'frzAng', 'frzBy', 'sun', 'sunStage', 'sunGrowT', 'magnet', 'born'];
+  function moveCell(c, n, t0) {
+    MOVE_F.forEach(f => { n[f] = c[f]; });
+    if (c.ice) cells.forEach(x => { if (x.frzBy === c.idx) x.frzBy = n.idx; });
+    n.mv = { fx: c.x, fy: c.y, t0, dur: .38 }; n.pt = 9; n.gt = -1;
+    c.ci = -1; c.bomb = c.fire = c.ice = c.frozen = c.sun = c.magnet = false; c.mv = null;
+  }
+  const mvOff = cl => {
+    if (!cl.mv) return [0, 0];
+    const k = clamp((time - cl.mv.t0) / cl.mv.dur);
+    if (k >= 1) { cl.mv = null; return [0, 0]; }
+    const e = eio(k); return [(cl.mv.fx - cl.x) * (1 - e), (cl.mv.fy - cl.y) * (1 - e)];
+  };
   const ringOf = cell => DIRS.map(([dq, dr]) => map.get(key(cell.q + dq, cell.r + dr))).filter(Boolean);
   function groupOf(start) {
     const seen = new Set(start), st = [...start];
@@ -155,7 +169,7 @@
       const give = (p, type) => { p[type] = rand(p.shape.length); };
       if (HB.settings.bombSource === 'random') ps.forEach(p => { if (Math.random() < .08) give(p, nextSpecial()); });
       while (pending.length) {
-        const free = ps.filter(p => p.bomb < 0 && p.bolt < 0 && p.fire < 0 && p.ice < 0 && p.sun < 0 && p.daisy < 0);
+        const free = ps.filter(p => p.bomb < 0 && p.bolt < 0 && p.fire < 0 && p.ice < 0 && p.sun < 0 && p.daisy < 0 && p.magnet < 0);
         if (!free.length) break;
         give(free[rand(free.length)], pending.shift());
       }
@@ -165,17 +179,17 @@
   }
 
   /* ---------- сохранение ---------- */
-  const serPiece = p => p ? { shape: p.shape, ci: p.ci, bomb: p.bomb, bolt: p.bolt, fire: p.fire, ice: p.ice, sun: p.sun, daisy: p.daisy, vs: p.vs } : null;
+  const serPiece = p => p ? { shape: p.shape, ci: p.ci, bomb: p.bomb, bolt: p.bolt, fire: p.fire, ice: p.ice, sun: p.sun, daisy: p.daisy, magnet: p.magnet, vs: p.vs } : null;
   function snapshot() {
     return {
-      cells: cells.map(c => [c.ci, c.bomb ? 1 : 0, c.v, c.fire ? 1 : 0, c.ice ? 1 : 0, c.frozen ? 1 : 0, c.sun ? 1 : 0, c.sunStage, c.daisy ? c.dPet : 0, c.daisy ? Math.round(c.dT * 10) / 10 : 0]), tray: tray.map(serPiece), hold: serPiece(hold),
+      cells: cells.map(c => [c.ci, c.bomb ? 1 : 0, c.v, c.fire ? 1 : 0, c.ice ? 1 : 0, c.frozen ? 1 : 0, c.sun ? 1 : 0, c.sunStage, c.daisy ? c.dPet : 0, c.daisy ? Math.round(c.dT * 10) / 10 : 0, c.magnet ? 1 : 0]), tray: tray.map(serPiece), hold: serPiece(hold),
       score, combo, miss, stat: Object.assign({}, stat), pending: pending.slice(), charge, recordShown
     };
   }
   function restore(s) {
-    cells.forEach((c, i) => { c.ci = s.cells[i][0]; c.bomb = !!s.cells[i][1]; c.fire = !!s.cells[i][3]; c.ice = !!s.cells[i][4]; c.frozen = !!s.cells[i][5]; c.frzBy = -1; c.frzT = -9; c.sun = !!s.cells[i][6]; c.sunStage = s.cells[i][7] || 0; c.sunGrowT = -9; c.dPet = s.cells[i][8] || 0; c.daisy = c.dPet > 0; c.dT = s.cells[i][9] || 30; c.dAsc = false; c.v = s.cells[i][2] || (i * 7) % 10; c.born = time; c.pt = 9; c.fx = null; c.gt = -1; });
-    tray = s.tray.map((p, i) => p ? makePiece(i, i * .06, p.shape, p.ci, p.bomb, p.vs, p.bolt == null ? -1 : p.bolt, p.fire == null ? -1 : p.fire, p.ice == null ? -1 : p.ice, p.sun == null ? -1 : p.sun, p.daisy == null ? -1 : p.daisy) : null);
-    hold = s.hold ? makePiece(3, .1, s.hold.shape, s.hold.ci, s.hold.bomb, s.hold.vs, s.hold.bolt == null ? -1 : s.hold.bolt, s.hold.fire == null ? -1 : s.hold.fire, s.hold.ice == null ? -1 : s.hold.ice, s.hold.sun == null ? -1 : s.hold.sun, s.hold.daisy == null ? -1 : s.hold.daisy) : null;
+    cells.forEach((c, i) => { c.ci = s.cells[i][0]; c.bomb = !!s.cells[i][1]; c.fire = !!s.cells[i][3]; c.ice = !!s.cells[i][4]; c.frozen = !!s.cells[i][5]; c.frzBy = -1; c.frzT = -9; c.sun = !!s.cells[i][6]; c.sunStage = s.cells[i][7] || 0; c.sunGrowT = -9; c.dPet = s.cells[i][8] || 0; c.daisy = c.dPet > 0; c.dT = s.cells[i][9] || 30; c.dAsc = false; c.magnet = !!s.cells[i][10]; c.mv = null; c.v = s.cells[i][2] || (i * 7) % 10; c.born = time; c.pt = 9; c.fx = null; c.gt = -1; });
+    tray = s.tray.map((p, i) => p ? makePiece(i, i * .06, p.shape, p.ci, p.bomb, p.vs, p.bolt == null ? -1 : p.bolt, p.fire == null ? -1 : p.fire, p.ice == null ? -1 : p.ice, p.sun == null ? -1 : p.sun, p.daisy == null ? -1 : p.daisy, p.magnet == null ? -1 : p.magnet) : null);
+    hold = s.hold ? makePiece(3, .1, s.hold.shape, s.hold.ci, s.hold.bomb, s.hold.vs, s.hold.bolt == null ? -1 : s.hold.bolt, s.hold.fire == null ? -1 : s.hold.fire, s.hold.ice == null ? -1 : s.hold.ice, s.hold.sun == null ? -1 : s.hold.sun, s.hold.daisy == null ? -1 : s.hold.daisy, s.hold.magnet == null ? -1 : s.hold.magnet) : null;
     score = s.score; combo = s.combo; miss = s.miss; stat = Object.assign({ lines: 0, maxCombo: 0, clears: 0 }, s.stat);
     pending = Array.isArray(s.pending) ? s.pending.slice() : Array(s.pendingBomb || 0).fill('bomb'); charge = s.charge || 0; recordShown = !!s.recordShown;
     drag = ghost = preview = null;
@@ -340,7 +354,7 @@
     const pc = pieceAt(drag.i), placed = [];
     pc.shape.forEach(([dq, dr], k) => {
       const cl = map.get(key(ghost.aq + dq, ghost.ar + dr));
-      cl.ci = pc.ci; cl.bomb = k === pc.bomb; cl.fire = k === pc.fire; cl.ice = k === pc.ice; cl.sun = k === pc.sun; if (cl.sun) { cl.sunStage = 0; cl.sunGrowT = time; } cl.daisy = k === pc.daisy; if (cl.daisy) { cl.dPet = 5; cl.dT = 30; cl.dAsc = false; } cl.v = pc.vs[k] | 0; cl.born = time; cl.pt = 0; placed.push(cl);
+      cl.ci = pc.ci; cl.bomb = k === pc.bomb; cl.fire = k === pc.fire; cl.ice = k === pc.ice; cl.sun = k === pc.sun; if (cl.sun) { cl.sunStage = 0; cl.sunGrowT = time; } cl.daisy = k === pc.daisy; if (cl.daisy) { cl.dPet = 5; cl.dT = 30; cl.dAsc = false; } cl.magnet = k === pc.magnet; cl.mv = null; cl.v = pc.vs[k] | 0; cl.born = time; cl.pt = 0; placed.push(cl);
     });
     if (drag.i === 3) hold = null; else tray[drag.i] = null;
     score += pc.shape.length;
@@ -362,6 +376,7 @@
     if (pc.fire >= 0) { setTimeout(() => { HB.sfx.ignite(); HB.haptic('ignite'); }, 60); const fc = placed[pc.fire]; for (let i = 0; i < 12; i++) parts.push({ k: 'ember', soft: true, x: fc.x, y: fc.y, vx: rnd(-50, 50), vy: rnd(-150, -60), g: -20, t: 0, life: rnd(.6, 1.1), color: '#FFB347', r: rnd(1.2, 2.2) }); }
 
     if (pc.sun >= 0) { HB.sfx.sunPlace(); HB.haptic('sungrow'); }
+    if (pc.magnet >= 0) { HB.sfx.magnetPlace(); HB.haptic('place'); }
     if (pc.daisy >= 0) { const dc = placed[pc.daisy]; HB.sfx.daisyPlace(); HB.haptic('streak'); for (let i = 0; i < 10; i++) parts.push({ k: 'petal', x: dc.x, y: dc.y, vx: 0, vy: rnd(-70, -20), g: 40, t: 0, life: rnd(.8, 1.3), color: '#FFFFFF', r: rnd(2.5, 4), rot: rnd(0, TAU), vr: rnd(-3, 3), soft: true }); }
     const autoSuns = [];
     let grew = 0;
@@ -403,23 +418,31 @@
       }
       // Цепочка особых сот: бомбы и костры поджигают друг друга, молния заряжает и тех и других.
       const power = HB.settings.bombPower === 2 ? 2 : 1;
-      const queue = [...u].filter(c => c.bomb || c.fire || c.ice || c.sun), done = new Set(), sunburnt = new Set(), sunFrom = new Map(), prismCol = new Map(), burnt = new Set(), blasted = new Set(), blastFrom = new Map(), frostAt = new Map(), iced = new Set(), iceFrom = new Map(), types = new Set();
+      const queue = [...u].filter(c => c.bomb || c.fire || c.ice || c.sun || c.magnet), done = new Set(), sunburnt = new Set(), sunFrom = new Map(), prismCol = new Map(), burnt = new Set(), blasted = new Set(), blastFrom = new Map(), frostAt = new Map(), iced = new Set(), iceFrom = new Map(), types = new Set();
       if (strike) types.add('bolt');
-      const whirled = new Set();
+      const whirled = new Set(), magnets = [];
       let nBombs = 0, cryo = false, thermo = false, fireSteam = false, fireSun = false;
       let ices = 0, iceMode = '', suns = 0, sunMode = '';
       let fires = 0, napalm = false, storm = false, fireBlast = false;
       const addCell = (c, d) => {
         if (!u.has(c)) { if (c.ci < 0) return; u.add(c); delay.set(c, d); }
         else delay.set(c, Math.min(delay.get(c), d));
-        if ((c.bomb || c.fire || c.ice || c.sun) && !done.has(c)) queue.push(c);
+        if ((c.bomb || c.fire || c.ice || c.sun || c.magnet) && !done.has(c)) queue.push(c);
       };
       while (queue.length) {
         const b = queue.shift();
         if (done.has(b)) continue;
         done.add(b);
-        types.add(b.bomb ? 'bomb' : b.fire ? 'fire' : b.ice ? 'ice' : 'sun');
+        types.add(b.magnet ? 'magnet' : b.bomb ? 'bomb' : b.fire ? 'fire' : b.ice ? 'ice' : 'sun');
         const at = delay.get(b), mult = Math.pow(2, done.size - 1);
+        if (b.magnet) {
+          // Магнит: после очистки тянет соты к себе, заполняя пустоты. Молния делает его электромагнитом на всё поле.
+          const zap = zapped.has(b), boost = blasted.has(b) || burnt.has(b) || sunburnt.has(b);
+          const R = zap ? 8 : boost ? 4 : 3, bp = 60 * mult * (zap || boost ? 2 : 1);
+          bombPts += bp;
+          magnets.push({ b, R, at, zap });
+          booms.push({ x: b.x, y: b.y, t: -at, fired: false, magnet: true, R, zap, pts: bp });
+        }
         if (b.bomb) {
           const zap = zapped.has(b), nap = burnt.has(b) && !zap;
           const cr = !zap && !nap && (iced.has(b) || b.frozen), th = !zap && !nap && !cr && sunburnt.has(b);
@@ -581,10 +604,42 @@
       let frozenHit = 0;
       u.forEach(c => {
         if (c.frozen) frozenHit++;
-        c.fx = { orbit: whirled.has(c), ci: c.ci, v: c.v, bomb: c.bomb, fire: c.fire, ice: c.ice, sun: c.sun, sunStage: c.sunStage, sunburn: sunburnt.has(c), prism: prismCol.has(c) ? prismCol.get(c) : null, frozen: c.frozen, frost: frostAt.has(c) ? frostAt.get(c) : null, frzAng: c.frzAng, burning: burnt.has(c), charged: c.bomb && zapped.has(c), age: time - c.born, delay: delay.get(c), t: 0, burst: false, hole: { cx: ox, cy: oy } };
+        c.fx = { magnet: c.magnet, orbit: whirled.has(c), ci: c.ci, v: c.v, bomb: c.bomb, fire: c.fire, ice: c.ice, sun: c.sun, sunStage: c.sunStage, sunburn: sunburnt.has(c), prism: prismCol.has(c) ? prismCol.get(c) : null, frozen: c.frozen, frost: frostAt.has(c) ? frostAt.get(c) : null, frzAng: c.frzAng, burning: burnt.has(c), charged: c.bomb && zapped.has(c), age: time - c.born, delay: delay.get(c), t: 0, burst: false, hole: { cx: ox, cy: oy } };
         delays.push(c.fx.delay); xs.push((c.x - 180) / 180);
-        c.ci = -1; c.bomb = false; c.fire = false; c.ice = false; c.frozen = false; c.sun = false; c.daisy = false;
+        c.ci = -1; c.bomb = false; c.fire = false; c.ice = false; c.frozen = false; c.sun = false; c.daisy = false; c.magnet = false;
       });
+      // Притяжение: соты в радиусе магнита шагают на клетку ближе к нему, в освободившиеся места.
+      let magPts = 0, magLines = 0, magZap = false, magMoved = 0;
+      magnets.forEach(({ b, R, at, zap }) => {
+        if (zap) magZap = true;
+        const t0 = time + at + .35, moved = new Set();
+        cells.filter(c => c.ci >= 0 && !c.daisy && cdist(c, b) >= 1 && cdist(c, b) <= R)
+          .sort((p, q) => cdist(p, b) - cdist(q, b) || Math.hypot(p.x - b.x, p.y - b.y) - Math.hypot(q.x - b.x, q.y - b.y))
+          .forEach(c => {
+            if (moved.has(c) || c.ci < 0) return;
+            const d = cdist(c, b);
+            const opts = ringOf(c).filter(n => n.ci < 0 && !moved.has(n) && cdist(n, b) === d - 1);
+            if (!opts.length) return;
+            opts.sort((p, q) => Math.hypot(p.x - b.x, p.y - b.y) - Math.hypot(q.x - b.x, q.y - b.y));
+            moveCell(c, opts[0], t0 + d * .035); moved.add(opts[0]); magMoved++;
+          });
+      });
+      if (magnets.length) {
+        // Притянутые соты могли закрыть новые ряды: они сгорают сразу после притяжения.
+        const tEnd = Math.max(...magnets.map(m => m.at)) + .85;
+        const full2 = lines.filter(l => l.every(x => x.ci >= 0));
+        if (full2.length) {
+          const set = new Set(); full2.forEach(l => l.forEach(x => set.add(x)));
+          [...set].filter(x => x.daisy).forEach(x => tearPetals(x, 1));
+          const list = [...set].filter(x => !x.daisy && !x.bomb && !x.fire && !x.ice && !x.sun && !x.magnet);
+          const m0 = magnets[0].b;
+          sweep(list, m0.x, m0.y, 0, 900);
+          list.forEach(x => { if (x.fx) x.fx.delay += tEnd; });
+          magLines = full2.length; magPts = list.length * 30 * full2.length; stat.lines += full2.length;
+          setTimeout(() => { HB.sfx.combo(combo + 2); HB.haptic('combo'); }, 900);
+        }
+      }
+
       const BC = HB.fx.bursts[HB.profile.burst];
       if (BC) BC.clear(fxApi, ox, oy, { lines: full.length || 1 });
       let pts = Math.round(lineCells * 10 * full.length * (1 + (combo - 1) * .5)) + (u.size - lineCells - strikeCells) * 15 + strikeCells * 12 + bombPts;
@@ -599,6 +654,8 @@
       else if (frozenHit >= 3) bits.push('ЗВОН ЛЬДА');
       pts += frozenHit * 20;
       if (fires) bits.push(storm ? 'ОГНЕННАЯ БУРЯ' : fires > 1 ? 'ЛЕСНОЙ ПОЖАР ×' + fires : fireBlast ? 'ОГНЕННЫЙ ВЗРЫВ' : fireSteam ? 'ПАРОВОЙ ВЗРЫВ' : fireSun ? 'ПРОТУБЕРАНЕЦ' : 'КОСТЁР!');
+      if (magnets.length) bits.push(magZap ? 'ЭЛЕКТРОМАГНИТ' : 'МАГНИТ');
+      if (magLines) bits.push('МАГНИТНАЯ СБОРКА ×' + magLines);
       if (cryo) bits.push('КРИОБОМБА');
       if (thermo) bits.push('ТЕРМОЯД');
       if (fireSteam) bits.push('ПАРОВОЙ ВЗРЫВ');
@@ -612,6 +669,7 @@
       if (full.length > 1) bits.push(full.length + ' ' + U.plural(full.length, 'ЛИНИЯ', 'ЛИНИИ', 'ЛИНИЙ'));
       if (combo > 1) bits.push('КОМБО ×' + combo);
       if (cells.every(c => c.ci < 0)) { pts += 300; stat.clears++; bits.push('ЧИСТОЕ ПОЛЕ'); confetti(); }
+      pts += magPts;
       if (bloomT > 0) { pts *= 3; bits.push('ЦВЕТЕНИЕ ×3'); }
       score += pts;
       floatText('+' + U.fmt(pts), ox, oy, 30 + Math.min(full.length, 4) * 5);
@@ -683,7 +741,7 @@
       gifts.push({ n: num, cell: c, t: .75 + k * .95 });
     }
   }
-  const pieceHasSpecial = p => p.bomb >= 0 || p.bolt >= 0 || p.fire >= 0 || p.ice >= 0 || p.sun >= 0 || p.daisy >= 0;
+  const pieceHasSpecial = p => p.bomb >= 0 || p.bolt >= 0 || p.fire >= 0 || p.ice >= 0 || p.sun >= 0 || p.daisy >= 0 || p.magnet >= 0;
   function flyTo(from, x, y, col, n = 8) {
     for (let i = 0; i < n; i++) { const d = .35 + i * .03; parts.push({ k: 'star4', soft: true, x: from.x, y: from.y - 24, vx: (x - from.x) / d, vy: (y - from.y + 24) / d, g: 0, t: -i * .025, life: d, color: i % 2 ? '#FFFFFF' : col, r: rnd(2.5, 4) }); }
   }
@@ -720,7 +778,7 @@
     list.forEach(c => {
       if (c.ci < 0) return;
       c.fx = { bfly: !!sweepBfly, ci: c.ci, v: c.v, age: time - c.born, delay: Math.hypot(c.x - ox, c.y - oy) / speed, t: 0, burst: false, hole: { cx: ox, cy: oy } };
-      c.ci = -1; c.bomb = c.fire = c.ice = c.frozen = c.sun = c.daisy = false;
+      c.ci = -1; c.bomb = c.fire = c.ice = c.frozen = c.sun = c.daisy = c.magnet = false; c.mv = null;
     });
     const pts = list.length * per;
     score += pts; bump = 1;
@@ -735,7 +793,7 @@
       gifts.push({ drop: e, t: .38 });
       showBanner(PETAL_NAMES[1], '#FFF3B0');
     } else if (g.n === 2) {
-      const types = ['bomb', 'bolt', 'fire', 'ice', 'sun'], type = types[rand(types.length)];
+      const types = ['bomb', 'bolt', 'fire', 'ice', 'sun', 'magnet'], type = types[rand(types.length)];
       const cand = [...tray, hold].filter(p => p && !pieceHasSpecial(p));
       if (cand.length) { const p = cand[rand(cand.length)]; p[type] = rand(p.shape.length); flyTo(dc, p.x, p.y, '#FFE45C', 10); p.sc *= 1.25; }
       else pending.push(type);
@@ -954,7 +1012,7 @@
    * Новый лоток вместо старого: особые соты со старых фигур переезжают на новые,
    * каждая на фигуру в том же слоте (или на ближайшую свободную), ничего не теряется.
    */
-  const SPEC = ['bomb', 'bolt', 'fire', 'ice', 'sun', 'daisy'];
+  const SPEC = ['bomb', 'bolt', 'fire', 'ice', 'sun', 'daisy', 'magnet'];
   function swapTray(shapes, delay0) {
     const carry = [];
     tray.forEach((p, i) => { if (p) SPEC.forEach(k => { if (p[k] >= 0) carry.push({ k, slot: i }); }); });
@@ -998,12 +1056,12 @@
     return true;
   }
   function newGame() {
-    cells.forEach(c => { c.ci = -1; c.bomb = false; c.fire = false; c.ice = false; c.frozen = false; c.sun = false; c.daisy = false; c.pt = 9; c.fx = null; c.gt = -1; });
+    cells.forEach(c => { c.ci = -1; c.bomb = false; c.fire = false; c.ice = false; c.frozen = false; c.sun = false; c.daisy = false; c.magnet = false; c.mv = null; c.pt = 9; c.fx = null; c.gt = -1; });
     gifts = []; ascend = null;
     score = shown = 0; combo = miss = 0; stat = { lines: 0, maxCombo: 0, clears: 0 };
     pending = []; charge = 0; undoCharges = 0; snap = null; lastAward = 0; hold = null; holdHint = false; paidChances = 0; bloomT = 0;
     best = HB.best(); bestAtStart = best; recordShown = false; isRecord = false;
-    parts = []; snowflakes = []; hurricanes = []; bunnies = []; skyfires = []; rings = []; floats = []; banners = []; splats = []; booms = []; strikes = []; hudFx = []; flames = []; sunBeams = [];
+    parts = []; snowflakes = []; hurricanes = []; bunnies = []; skyfires = []; magFields = []; rings = []; floats = []; banners = []; splats = []; booms = []; strikes = []; hudFx = []; flames = []; sunBeams = [];
     drag = ghost = preview = null; idleT = 0;
     refill(); updateFits();
     mode = 'play';
@@ -1044,13 +1102,16 @@
     { id: 'daisy3', g: ['daisy'], need: ['daisy'], len: 4.6, piece2: true, spec2: 'bomb', name: 'Ромашка: 3-й лепесток', desc: 'Третий лепесток меняет фигуры на те, что помогут ромашке расцвести: они закрывают ряды через неё. Особые соты со старых фигур переезжают на новые.', set: s => { s.row(); s.put(2, 0, 'daisy', 3); s.fill(18); } },
     { id: 'daisy4', g: ['daisy'], need: ['daisy'], len: 4.4, name: 'Ромашка: опыление', desc: 'Четвёртый лепесток: пыльца летит ко всем сотам самого частого цвета, они расцветают и исчезают.', set: s => { s.row(); s.put(2, 0, 'daisy', 2); s.fill(28); } },
     { id: 'daisy5', g: ['daisy'], need: ['daisy'], len: 5.6, name: 'Ромашка: вознесение', desc: 'Пятый лепесток: цветок возносится в столбе света, всё поле очищается (+2000), из сот вылетают бабочки, и начинается Цветущее поле: 30 секунд очки ×3.', set: s => { s.row(); s.put(2, 0, 'daisy', 1); s.fill(30); } },
+    { id: 'magnet', g: ['magnet'], need: ['magnet'], len: 4.4, name: 'Магнит', desc: 'Сгорел в линии и тянет к себе все соты в радиусе 3: они шагают в освободившиеся места.', set: s => { s.row(); s.put(2, 0, 'magnet'); s.fill(30); } },
+    { id: 'magsnap', g: ['magnet'], need: ['magnet'], len: 4.8, name: 'Магнитная сборка', desc: 'Притянутые соты закрыли новые ряды, и те сгорают следом, очки ×2 за каждую линию.', set: s => { s.row(); s.put(1, 0, 'magnet'); [[2,-2],[0,1],[-1,-2],[-4,2],[3,-4],[-4,3],[-4,1],[1,-1],[-1,1],[1,-4],[-1,-1],[3,-1],[4,-3],[-4,4],[2,1],[-3,4],[3,-3],[-1,3],[2,-3],[-2,4],[-2,-1],[0,2],[-2,3],[0,-1],[0,-4],[1,2],[-1,4],[-1,2]].forEach(([q, r]) => s.put(q, r, 'ci')); } },
+    { id: 'electro', g: ['magnet', 'bolt'], need: ['magnet', 'bolt'], len: 4.8, name: 'Электромагнит', desc: 'Молния заряжает магнит: он тянет соты со всего поля, очки ×2.', piece: 'bolt', set: s => { s.row(); s.put(2, 0, 'magnet'); s.fill(34); } },
     { id: 'chaos', g: ['multi'], need: ['bolt', 'bomb', 'ice'], len: 5.2, name: 'Стихийный хаос', desc: 'Три разные стихии в одной цепочке: очки ×2, радужные волны и замедление.', piece: 'bolt', set: s => { s.row(); s.put(2, 0, 'bomb'); s.put(-2, 0, 'ice'); s.fill(14); } },
     { id: 'frostsun', g: ['multi'], need: ['ice', 'sun', 'bomb'], len: 5.4, name: 'Мороз + солнце + бомба', desc: 'Призма, термояд и хаос разом: радужные лучи и ядерная вспышка.', set: s => { s.row(); s.put(-3, 0, 'sun', 2); s.put(-3, -1, 'ice'); s.put(-2, -1, 'bomb'); s.fill(18); } },
     { id: 'apocalypse', g: ['multi'], need: ['bolt', 'bomb', 'ice', 'fire', 'sun'], len: 5.8, name: 'Апокалипсис', desc: 'Четыре и больше стихий в одной цепочке: очки ×3 и всё, что есть в игре.', piece: 'bolt', set: s => { s.row(); s.put(2, 0, 'bomb'); s.put(-2, 0, 'ice'); s.put(3, 0, 'fire'); s.put(-4, 0, 'sun', 2); s.fill(18); } }
   ];
   function mulberry(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
   function setupCombo(cb) {
-    cells.forEach(c => { c.ci = -1; c.bomb = c.fire = c.ice = c.frozen = c.sun = c.daisy = false; c.sunStage = 0; gifts = []; ascend = null; c.fx = null; c.gt = -1; c.pt = 9; c.born = time; });
+    cells.forEach(c => { c.ci = -1; c.bomb = c.fire = c.ice = c.frozen = c.sun = c.daisy = c.magnet = false; c.mv = null; c.sunStage = 0; gifts = []; ascend = null; c.fx = null; c.gt = -1; c.pt = 9; c.born = time; });
     const rn = HB.skins.srng(cb.id.length * 131 + 7), taken = new Set();
     const s = {
       row(except = [0]) { cells.forEach(c => { if (c.r === 0 && !except.includes(c.q)) { c.ci = (c.q + 9) % 6; } }); },
@@ -1072,7 +1133,7 @@
     updateFits();
   }
   let demo = null, lastShake = 0;
-  const clearFx = () => { bloomT = 0; gifts = []; ascend = null; parts = []; snowflakes = []; hurricanes = []; bunnies = []; skyfires = []; rings = []; floats = []; banners = []; splats = []; booms = []; strikes = []; flames = []; sunBeams = []; hudFx = []; slowmo = freeze = shake = punch = whiteFlash = 0; };
+  const clearFx = () => { bloomT = 0; gifts = []; ascend = null; parts = []; snowflakes = []; hurricanes = []; bunnies = []; skyfires = []; magFields = []; rings = []; floats = []; banners = []; splats = []; booms = []; strikes = []; flames = []; sunBeams = []; hudFx = []; slowmo = freeze = shake = punch = whiteFlash = 0; };
   /** Открыть показ комбо id. Если показ уже идёт, партия уже отложена: просто переключаем ролик. */
   function startDemo(id, onEnd, onDone) {
     const cb = COMBOS.find(c => c.id === id); if (!cb) return;
@@ -1235,8 +1296,49 @@
     if (b.mode === 'bunny') setTimeout(() => HB.sfx.bunnies(), 250);
     if (b.mode === 'flare') for (let i = 0; i < 34; i++) { const a = rnd(0, TAU), v = rnd(80, 220); parts.push({ k: 'flamep', x: b.x + Math.cos(a) * 14, y: b.y + Math.sin(a) * 14, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 60, g: -30, t: -rnd(.3, .6), life: rnd(.5, .9), color: '#FF8A00', r: rnd(10, 18) }); }
   }
+  /** Магнит включился: поле сжимается к нему, искры летят внутрь, затем глубокий щелчок притяжения. */
+  function magnetFx(b) {
+    HB.sfx.magnet(b.zap); HB.haptic('thunder');
+    if (b.pts) floatText('+' + U.fmt(b.pts), b.x, b.y - 22, 28, '#A9B8FF');
+    magFields.push({ x: b.x, y: b.y, t: 0, life: 1.2, R: b.R, zap: b.zap });
+    shake = Math.max(shake, 8); slowmo = Math.max(slowmo, .6);
+    for (let i = 0; i < (b.zap ? 70 : 42); i++) {
+      const a = rnd(0, TAU), rad = (Math.min(b.R, 5) + .5) * S * 1.7 * rnd(.6, 1), d = rnd(.3, .45);
+      parts.push({ k: 'star4', soft: true, x: b.x + Math.cos(a) * rad, y: b.y + Math.sin(a) * rad, vx: -Math.cos(a) * rad / d, vy: -Math.sin(a) * rad / d, g: 0, t: -rnd(0, .1), life: d, color: i % 3 ? (b.zap ? '#BFE6FF' : '#9FB4FF') : '#FFFFFF', r: rnd(1.5, 3) });
+    }
+  }
+  function drawMagFields(c) {
+    for (const f of magFields) {
+      const k = f.t / f.life, fade = 1 - clamp((k - .55) / .45), R0 = (Math.min(f.R, 5) + .6) * S * 1.75;
+      c.save(); c.globalCompositeOperation = 'lighter';
+      for (let i = 0; i < 3; i++) {
+        const kk = (k * 1.8 + i / 3) % 1, a = .7 * Math.sin(Math.PI * kk) * fade;
+        hexPath(c, f.x, f.y, R0 * (1 - kk) + 6, kk * .6);
+        c.lineWidth = 2.5; c.strokeStyle = f.zap ? `rgba(170,220,255,${a})` : `rgba(150,170,255,${a})`; c.stroke();
+      }
+      const g = c.createRadialGradient(f.x, f.y, 0, f.x, f.y, 40); g.addColorStop(0, `rgba(200,210,255,${.6 * fade})`); g.addColorStop(1, 'rgba(150,170,255,0)');
+      c.fillStyle = g; c.beginPath(); c.arc(f.x, f.y, 40, 0, TAU); c.fill();
+      c.restore();
+    }
+  }
+  /** Подкова-магнит с пульсирующими линиями поля. */
+  function drawMagnet(c, x, y, R, t) {
+    c.save(); c.translate(x, y + Math.sin(t * 2) * R * .03); c.rotate(Math.sin(t * 1.3) * .08);
+    c.save(); c.globalCompositeOperation = 'lighter'; c.lineWidth = 1.2;
+    for (let i = 0; i < 2; i++) { const k = (t * .6 + i * .5) % 1; c.strokeStyle = `rgba(140,170,255,${.55 * (1 - k)})`; c.beginPath(); c.ellipse(0, R * .1, R * (.4 + .5 * k), R * (.3 + .4 * k), 0, 0, TAU); c.stroke(); }
+    c.restore();
+    const r = R * .3, w = R * .2, leg = R * .4;
+    const path = () => { c.beginPath(); c.moveTo(-r, leg); c.lineTo(-r, 0); c.arc(0, 0, r, Math.PI, 0); c.lineTo(r, leg); };
+    c.lineCap = 'butt';
+    path(); c.lineWidth = w + R * .07; c.strokeStyle = 'rgba(40,0,10,.5)'; c.stroke();
+    path(); c.lineWidth = w; const gr = c.createLinearGradient(-r, -r, r, leg); gr.addColorStop(0, '#FF6B6B'); gr.addColorStop(.5, '#E01E37'); gr.addColorStop(1, '#8E0F22'); c.strokeStyle = gr; c.stroke();
+    c.beginPath(); c.arc(0, 0, r + w * .28, Math.PI * 1.1, Math.PI * 1.6); c.lineWidth = w * .2; c.strokeStyle = 'rgba(255,220,220,.75)'; c.stroke();
+    [-1, 1].forEach(s => { const g2 = c.createLinearGradient(0, leg - R * .16, 0, leg + R * .04); g2.addColorStop(0, '#FFFFFF'); g2.addColorStop(1, '#8D97AE'); c.fillStyle = g2; c.fillRect(s * r - w / 2, leg - R * .14, w, R * .18); });
+    c.restore();
+  }
   function explode(b) {
     if (b.sun) { sunFx(b); return; }
+    if (b.magnet) { magnetFx(b); return; }
     if (b.ice) { iceFx(b); return; }
     if (b.fire) { igniteFx(b); return; }
     if (b.cryo) {
@@ -1398,6 +1500,15 @@
       if (h > b.h && h < b.pts.length) { b.h = h; const [x, y] = b.pts[h]; HB.sfx.bunnyHop(h); for (let i = 0; i < 6; i++) parts.push({ k: 'star4', soft: true, x, y, vx: rnd(-80, 80), vy: rnd(-90, 20), g: 60, t: 0, life: rnd(.4, .7), color: i % 2 ? '#FFFFFF' : '#FFE08A', r: rnd(2, 3.5) }); rings.push({ x, y, t: 0, color: '#FFE9A0' }); }
     }
     bunnies = bunnies.filter(b => b.t < (b.pts.length - 1) * b.hop + .25);
+    for (const f of magFields) {
+      f.t += dt;
+      if (!f.snap && f.t >= .38) {
+        f.snap = true;
+        shake = Math.max(shake, f.zap ? 28 : 20); punch = Math.max(punch, .08); whiteFlash = Math.max(whiteFlash, .55); flashTint = '190,205,255';
+        rings.push({ x: f.x, y: f.y, t: 0, color: f.zap ? '#BFE6FF' : '#9FB4FF', big: true, huge: !!f.zap });
+      }
+    }
+    magFields = magFields.filter(f => f.t < f.life);
     if (combo >= 2 && mode === 'play') {
       hudAcc += dt * (10 + Math.min(combo, 8) * 5) * (1 - miss * .25);
       while (hudAcc > 1) {
@@ -1865,11 +1976,12 @@
       const rk = rippleK(cl);
       const sc = (cl.pt < 1 ? 1 + .24 * Math.exp(-7 * cl.pt) * Math.cos(18 * cl.pt) : 1) * rk;
       const flash = cl.gt >= 0 ? clamp(1 - Math.abs(endT - cl.gt) * 8) * .5 : 0;
-      const hz = sunsOn.length ? haze(cl) : [0, 0];
-      tile(c, cl.x + hz[0], cl.y + hz[1], S * .93 * sc, colorOf(cl.ci), { flash, grey, v: cl.v, age: time - cl.born, board: true, rip: rk - 1, seed: cl.idx * 7 + cl.v });
-      if (cl.bomb) drawBomb(c, cl.x, cl.y, S * sc, time + cl.q);
-      if (cl.frozen) drawFrost(c, cl.x, cl.y, S * .93 * sc, clamp((time - cl.frzT) / .8), cl.frzAng, cl.idx);
-      if (cl.ice) drawIce(c, cl.x, cl.y, S * sc, time + cl.q);
+      const hz = sunsOn.length ? haze(cl) : [0, 0], mo = mvOff(cl), px = cl.x + mo[0], py = cl.y + mo[1];
+      tile(c, px + hz[0], py + hz[1], S * .93 * sc, colorOf(cl.ci), { flash, grey, v: cl.v, age: time - cl.born, board: true, rip: rk - 1, seed: cl.idx * 7 + cl.v });
+      if (cl.bomb) drawBomb(c, px, py, S * sc, time + cl.q);
+      if (cl.frozen) drawFrost(c, px, py, S * .93 * sc, clamp((time - cl.frzT) / .8), cl.frzAng, cl.idx);
+      if (cl.ice) drawIce(c, px, py, S * sc, time + cl.q);
+      if (cl.magnet) drawMagnet(c, px, py, S * sc, time + cl.q);
       if (cl.daisy) drawDaisy(c, cl.x, cl.y, S * sc, time + cl.q, cl.dPet, cl.dT, true);
     }
     cells.forEach(cl => { if (cl.daisy && cl.dPet < 5) drawTorn(c, cl, time); });
@@ -1906,7 +2018,9 @@
       const o = { v: fx.v, age: fx.age + fx.t, board: true, seed: cl.idx * 7 + fx.v };
       if (lt < 0) {
         o.flash = .25 + .25 * Math.sin(fx.t * 30);
-        tile(c, cl.x, cl.y, S * .93, col, o);
+        const mo = mvOff(cl);
+        tile(c, cl.x + mo[0], cl.y + mo[1], S * .93, col, o);
+        if (fx.magnet) drawMagnet(c, cl.x, cl.y, S, time * 3);
         if (fx.bomb) drawBomb(c, cl.x, cl.y, S, time * 3);
         if (fx.fire) { fireLight(c, cl.x, cl.y, time, 1.5); drawBonfire(c, cl.x, cl.y, S, time * 1.6, 1.6); }
         if (fx.frozen) drawFrost(c, cl.x, cl.y, S * .93, 1, fx.frzAng, cl.idx);
@@ -1937,6 +2051,7 @@
     drawHurricanes(c);
     drawSunBeams(c);
     drawBunnies(c);
+    drawMagFields(c);
     for (const r of rings) {
       if (r.t < 0) continue;
       const life = r.big ? .7 : .55, p = r.t / life, maxR = r.huge ? 320 : r.big ? 230 : 150;
@@ -1957,6 +2072,7 @@
       if (k === p.fire) { c.globalAlpha = alpha; drawBonfire(c, px, py, S * sc, time + k, .85); c.globalAlpha = 1; }
       if (k === p.ice) { c.globalAlpha = alpha; drawIce(c, px, py, S * sc, time + k); c.globalAlpha = 1; }
       if (k === p.sun) { c.globalAlpha = alpha; drawSun(c, px, py, S * sc, time + k, 0); c.globalAlpha = 1; }
+      if (k === p.magnet) { c.globalAlpha = alpha; drawMagnet(c, px, py, S * sc, time + k); c.globalAlpha = 1; }
       if (k === p.daisy) { c.globalAlpha = alpha; drawDaisy(c, px, py, S * sc, time + k); c.globalAlpha = 1; }
     });
   }
@@ -2089,6 +2205,7 @@
         else if (k2 === 'ice') drawIce(c, ix, by, 12, time);
         else if (k2 === 'sun') drawSun(c, ix, by, 11, time, 0);
         else if (k2 === 'daisy') drawDaisy(c, ix, by, 11, time);
+        else if (k2 === 'magnet') drawMagnet(c, ix, by, 13, time);
         else drawBomb(c, ix, by, 11, time);
       });
       for (let i = 0; i < need; i++) {
