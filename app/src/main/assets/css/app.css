@@ -313,3 +313,7 @@ input[type="range"] { width: 100%; accent-color: var(--amber); height: 28px; }
 .btn.buy-chance { background: linear-gradient(180deg, #5A3A10, #3E2508); color: #FFE3A0; box-shadow: 0 4px 0 #24160A; display: flex; align-items: center; justify-content: center; gap: 6px; }
 .btn.buy-chance.poor { opacity: .5; }
 .btn.buy-chance.confirm { background: linear-gradient(180deg, #FFC857, #E89A1E); color: #2A1800; }
+
+/* Особые соты: кнопки в два ряда, чтобы не вылезали за край */
+.seg[data-multi="specials"] { display: grid; grid-template-columns: repeat(4, 1fr); }
+.seg[data-multi="specials"] button { font-size: 12px; padding: 9px 2px; }

@@ -884,6 +884,29 @@
       glassBell(mtof(zap ? 91 : 86), s + .12, { vol: .03, dur: 3 });
       rumble(s, 2.4, zap ? 1.2 : .8);
     },
+    /** Секундомер заведён: трещотка завода и чистый звонок. */
+    watchStart() {
+      if (!ready()) return; const t = now();
+      for (let i = 0; i < 9; i++) noiseHit(t + i * (.07 - i * .004), { vol: .08, dur: .012, freq: 2600, type: 'bandpass', q: 5, rev: .1, attack: .001 });
+      bell(mtof(88), t + .45, { vol: .06, dur: 1.6, ratio: 3.01, index: 1.2, send: .4 });
+      bell(mtof(95), t + .5, { vol: .03, dur: 1.2, ratio: 3.01, index: 1 });
+    },
+    /** Тик-так: деревянный щелчок, в последние секунды громче и с тихим звоном. */
+    watchTick(last = false) {
+      if (!ready()) return; const t = now();
+      noiseHit(t, { vol: last ? .14 : .08, dur: .014, freq: last ? 2300 : 1800, type: 'bandpass', q: 6, rev: .15, attack: .001 });
+      thud(t, { vol: last ? .12 : .06, from: 900, to: 500, dur: .03 });
+      if (last) bell(mtof(84), t, { vol: .02, dur: .4, ratio: 2, index: .6 });
+    },
+    /** Время вышло: звонок будильника, вдох и мощный светлый удар. */
+    watchEnd(x = 1) {
+      if (!ready()) return; const t = now();
+      for (let i = 0; i < 10; i++) bell(mtof(i % 2 ? 91 : 88), t + i * .035, { vol: .03, dur: .25, ratio: 3.01, index: 1.4 });
+      noiseHit(t + .1, { vol: .12, dur: .5, freq: 400, to: 5000, type: 'bandpass', q: 1.2, rev: .5, attack: .4 });
+      const s = t + .55;
+      thud(s, { vol: .9, from: 120, to: 30, dur: 1 }); rumble(s, 2, .9);
+      [60, 64, 67, 72, 76, 79].forEach((m, i) => bell(mtof(m + (x >= 5 ? 5 : 0)), s + i * .04, { vol: .04, dur: 2, pan: (i - 2.5) * .25, send: .3 }));
+    },
     /** Пузыри: светлое стеклянное мерцание и воздушный выдох, без «бульков». */
     bubbles() {
       if (!ready()) return; const t = now();
